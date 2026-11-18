@@ -8,7 +8,10 @@ export async function api(path, { method = "GET", body, form } = {}) {
   const r = await fetch("/api" + path, { method, headers, body: payload });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) {
-    if (r.status === 401 && t) localStorage.removeItem("token");
+    if (r.status === 401 && t) {          // token expired, or the admin blocked this user
+      localStorage.removeItem("token");
+      if (!location.pathname.startsWith("/login")) location.assign("/login");
+    }
     throw new Error(d.error || d.detail || "Request failed (" + r.status + ")");
   }
   return d;
@@ -18,3 +21,4 @@ export const fmtTime = (s) => {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
   return [h, m, x].map((n) => String(n).padStart(2, "0")).join(":");
 };
+export const fmtDate = (d) => (d ? new Date(d).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "-");

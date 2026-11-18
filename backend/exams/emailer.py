@@ -9,11 +9,15 @@ from django.core.mail import send_mail
 log = logging.getLogger(__name__)
 
 
-def send_otp_email(to_email, code):
+def send_otp_email(to_email, code, purpose="register"):
     """Send the OTP. Uses the Brevo HTTPS API when configured (SMTP ports are blocked on free hosts),
     otherwise falls back to Django's email backend (Gmail SMTP or console)."""
-    subject = "Your verification OTP"
-    text = f"Your OTP is {code}. It is valid for 10 minutes. Do not share it with anyone."
+    if purpose == "reset":
+        subject = "Password reset OTP"
+        text = f"Your password reset OTP is {code}. It is valid for 10 minutes. If you did not request this, ignore this email."
+    else:
+        subject = "Your verification OTP"
+        text = f"Your OTP is {code}. It is valid for 10 minutes. Do not share it with anyone."
     key = os.environ.get("BREVO_API_KEY", "").strip()
     sender = os.environ.get("BREVO_SENDER_EMAIL", "").strip()
     if key and sender:

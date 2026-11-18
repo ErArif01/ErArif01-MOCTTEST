@@ -14,6 +14,7 @@ export default function Exam() {
   const [modal, setModal] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showPal, setShowPal] = useState(false);
   const endRef = useRef(0);
   const doneRef = useRef(false);
   const ansRef = useRef({});
@@ -94,15 +95,18 @@ export default function Exam() {
         <div className="card">
           <div className="muted">Question {cur + 1} of {qs.length} | +{d.test.marks_per_question} / -{d.test.negative_marks}</div>
           <p className="qt">{q.text}</p>
-          {q.options.map((t, i) => {
-            const L = "ABCD"[i];
-            return (
-              <label key={L} className={"opt" + (ans[q.id] === L ? " sel" : "")}>
-                <input type="radio" name={"q" + q.id} checked={ans[q.id] === L} onChange={() => pick(L)} />
-                <span>{L}.</span><span>{t}</span>
-              </label>
-            );
-          })}
+          <div role="radiogroup" aria-label="Options">
+            {q.options.map((t, i) => {
+              const L = "ABCD"[i];
+              return (
+                <label key={L} className={"opt" + (ans[q.id] === L ? " sel" : "")}>
+                  <input type="radio" className="sr" name={"q" + q.id} checked={ans[q.id] === L} onChange={() => pick(L)} />
+                  <span className="ob">{L}</span>
+                  <span className="ot">{t}</span>
+                </label>
+              );
+            })}
+          </div>
           <div className="bar">
             <button className="pri" onClick={() => { setMark((m) => ({ ...m, [cur]: false })); go(cur + 1); }}>Save &amp; Next</button>
             <button onClick={() => { setMark((m) => ({ ...m, [cur]: true })); go(cur + 1); }}>Mark for Review &amp; Next</button>
@@ -110,15 +114,20 @@ export default function Exam() {
             <button onClick={() => go(cur - 1)}>Previous</button>
           </div>
         </div>
-        <div className="card">
-          <div className="pal">
-            {qs.map((_, i) => <button key={i} className={status(i) + (i === cur ? " cur" : "")} onClick={() => go(i)}>{i + 1}</button>)}
+        <div className={"card palcard" + (showPal ? " open" : "")}>
+          <button type="button" className="paltoggle" onClick={() => setShowPal(!showPal)} aria-expanded={showPal}>
+            Question palette ({answered}/{qs.length} answered) {showPal ? "\u25B2" : "\u25BC"}
+          </button>
+          <div className="palbody">
+            <div className="pal">
+              {qs.map((_, i) => <button key={i} className={status(i) + (i === cur ? " cur" : "")} onClick={() => { go(i); setShowPal(false); }}>{i + 1}</button>)}
+            </div>
+            <ul className="legend">
+              <li><i className="an" /> Answered {counts.an}</li><li><i className="na" /> Not answered {counts.na}</li>
+              <li><i className="nv" /> Not visited {counts.nv}</li><li><i className="mk" /> Marked {counts.mk}</li>
+              <li><i className="ma" /> Answered and marked {counts.ma}</li>
+            </ul>
           </div>
-          <ul className="legend">
-            <li><i className="an" /> Answered {counts.an}</li><li><i className="na" /> Not answered {counts.na}</li>
-            <li><i className="nv" /> Not visited {counts.nv}</li><li><i className="mk" /> Marked {counts.mk}</li>
-            <li><i className="ma" /> Answered and marked {counts.ma}</li>
-          </ul>
           <button className="pri full" onClick={() => setModal(true)}>Submit test</button>
         </div>
       </div>

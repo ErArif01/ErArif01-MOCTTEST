@@ -2,19 +2,20 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtTime } from "../api.js";
 
-export default function Result() {
+export default function Result({ admin = false }) {
   const { id } = useParams();
   const [r, setR] = useState(null);
   const [err, setErr] = useState("");
   const [flt, setFlt] = useState("all");
-  useEffect(() => { api(`/attempts/${id}/result/`).then(setR).catch((e) => setErr(e.message)); }, [id]);
+  useEffect(() => { api(admin ? `/admin/attempts/${id}/result/` : `/attempts/${id}/result/`).then(setR).catch((e) => setErr(e.message)); }, [id, admin]);
   if (err) return <p className="err center">{err}</p>;
   if (!r) return <p className="center">Loading result...</p>;
   const box = (t, v, c) => <div className={"stat " + (c || "")}><b>{v}</b><span>{t}</span></div>;
   const list = r.review.filter((q) => flt === "all" || q.status === flt);
   return (
-    <div className="wrap">
+    <div className={admin ? "" : "wrap"}>
       <div className="card">
+        {admin && <p><Link to="/manage/attempts">&larr; All results</Link> | <Link to={`/manage/users/${r.user.id}`}>{r.user.name}</Link> ({r.user.email})</p>}
         <h1>{r.test}: Result</h1>
         <div className="stats">
           {box("Score", `${r.score} / ${r.total_marks}`, "big")}
@@ -33,7 +34,7 @@ export default function Result() {
           <thead><tr><th>Section</th><th>Questions</th><th>Correct</th><th>Incorrect</th><th>Skipped</th><th>Score</th></tr></thead>
           <tbody>{r.sections.map((s) => <tr key={s.section}><td>{s.section}</td><td>{s.total}</td><td>{s.correct}</td><td>{s.incorrect}</td><td>{s.skipped}</td><td>{s.score}</td></tr>)}</tbody>
         </table></div>
-        <div className="bar"><Link className="btn" to="/">Back to dashboard</Link></div>
+        {!admin && <div className="bar"><Link className="btn" to="/">Back to dashboard</Link></div>}
       </div>
       <div className="card" style={{ marginTop: 12 }}>
         <h2>Answer review</h2>
@@ -46,7 +47,12 @@ export default function Result() {
             {q.options.map((t, i) => {
               const L = "ABCD"[i];
               const c = L === q.correct ? "good" : L === q.selected ? "bad" : "";
-              return <div key={L} className={"opt " + c}>{L}. {t}{L === q.selected ? "  (your answer)" : ""}{L === q.correct ? "  (correct)" : ""}</div>;
+              return (
+                <div key={L} className={"opt static " + c}>
+                  <span className="ob">{L}</span>
+                  <span className="ot">{t}{L === q.selected ? " (selected)" : ""}{L === q.correct ? " (correct)" : ""}</span>
+                </div>
+              );
             })}
             {q.explanation && <p className="muted">{q.explanation}</p>}
           </div>

@@ -1,42 +1,24 @@
-# Mock Test Portal (Django + React)
+# Mock Test Portal (Django + React) - v2
 
-Features: email-OTP registration, email login, admin-defined tests (name, time, negative marking, subject-wise
-question counts), random question paper per attempt, instructions page, server-side timer + auto-submit,
-early submit, full result (score, %, correct/incorrect/unattempted, accuracy, section-wise, answer review), CSV question upload.
+## New in v2
+- **Admin panel** at `/manage` (staff only): overview, users (search, block/unblock, make admin, set password, delete),
+  every user's tests and full result with answer review, all results with filters, tests (create/edit/hide/delete),
+  question bank (CSV upload, add/edit/delete, search).
+- **Blocked users** are logged out immediately and cannot log in again until unblocked.
+- **Forgot password** with email OTP (`/forgot`). OTP is used ONLY for registration and password reset.
+- **Logged-in users** change their password at `/account` with the current password (no OTP).
+- Exam options alignment fixed; layout is responsive (phone, tablet, desktop).
 
-## 1. Run locally
-```bash
-cd backend
-python -m venv venv && source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py createsuperuser                       # your admin login (email as username)
-python manage.py runserver                             # http://127.0.0.1:8000
+## Update an existing install
+1. Copy these folders over your project (keep your `.env`, `venv`, `db.sqlite3`).
+2. `cd backend && pip install -r requirements.txt && python manage.py migrate`   (adds 2 small fields)
+3. `cd frontend && npm install && npm run build`
+4. Commit and `git push` -> Render redeploys (build.sh runs migrate automatically).
 
-cd ../frontend                                         # new terminal
-npm install
-npm run dev                                            # http://localhost:5173
-```
-OTP emails print in the backend terminal until you set email variables (below).
+## Local run
+Backend: `python manage.py runserver`   Frontend: `npm run dev`   (see backend/.env.example for variables)
 
-## 2. Add questions and create a test
-1. Login with the superuser account on the site -> top bar "Upload questions" -> upload CSV
-   (`subject,question,a,b,c,d,correct,explanation`). `frontend/public/sample_questions.csv` has 50 ready questions
-   with subjects Computer, English, Reasoning, Aptitude, GK. (Or: `python manage.py import_questions file.csv`)
-2. Open `/admin/` -> Tests -> Add: name, duration, marks per question, negative marks, extra instructions,
-   then in "Test sections" add subject + number of questions (e.g. Computer 50, English 10, Reasoning 10, Aptitude 15, GK 15).
-   Make as many tests as you like. Each attempt gets a fresh random paper as per these counts.
-   Keep at least that many questions per subject in the bank.
-
-## 3. Go live (single server: Django serves React)
-```bash
-cd frontend && npm install && npm run build            # creates frontend/dist
-cd ../backend
-export DEBUG=0 SECRET_KEY='long-random-string' ALLOWED_HOSTS='yourdomain.com'
-export CSRF_TRUSTED_ORIGINS='https://yourdomain.com'
-export EMAIL_HOST_USER='you@gmail.com' EMAIL_HOST_PASSWORD='gmail-app-password'   # real OTP emails
-python manage.py migrate && python manage.py collectstatic --noinput
-gunicorn config.wsgi --bind 0.0.0.0:8000
-```
-Put nginx (or Render/Railway/PythonAnywhere) in front with HTTPS. Gmail needs 2-step verification + an "App password".
-For many simultaneous users switch `DATABASES` in `config/settings.py` to PostgreSQL.
+## Notes
+- Admin = a user with is_staff. Create the first one with ADMIN_* env vars (see build.sh) or `createsuperuser`.
+- "Deleting" a question only hides it, so old results keep working. A test with attempts can only be hidden.
+- Password reset reply is the same for unknown emails (no account enumeration).

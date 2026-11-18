@@ -1,12 +1,11 @@
 import csv, io, logging, random, secrets
 from datetime import timedelta
 
-from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
@@ -27,7 +26,7 @@ def err(msg, code=400):
 
 
 def user_json(u):
-    return {"id": u.id, "email": u.email, "name": u.first_name, "is_staff": u.is_staff}
+    return {"id": u.id, "email": u.email, "name": u.first_name, "username": u.username, "is_staff": u.is_staff}
 
 
 def clean_email(request):
@@ -39,22 +38,55 @@ def clean_email(request):
     return email
 
 
+def email_taken(email):
+    return User.objects.filter(email__iexact=email).exists() or User.objects.filter(username__iexact=email).exists()
+
+
+# ------------------------------------------------------------------ OTP helpers
+def too_soon(email, purpose):
+    last = EmailOTP.objects.filter(email=email, purpose=purpose).order_by("-created_at").first()
+    return bool(last and timezone.now() - last.created_at < timedelta(seconds=60))
+
+
+def new_otp(email, purpose):
+    code = f"{secrets.randbelow(10**6):06d}"
+    return code, EmailOTP.objects.create(email=email, purpose=purpose, code_hash=make_password(code))
+
+
+def check_otp(email, code, purpose):
+    """Returns (otp, error_message)."""
+    otp = EmailOTP.objects.filter(email=email, purpose=purpose, used=False).order_by("-created_at").first()
+    if not otp or timezone.now() - otp.created_at > timedelta(minutes=10):
+        return None, "OTP expired. Request a new one."
+    if otp.attempts >= 5:
+        return None, "Too many wrong attempts. Request a new OTP."
+    if not check_password(code, otp.code_hash):
+        otp.attempts += 1
+        otp.save(update_fields=["attempts"])
+        return None, "Wrong OTP."
+    return otp, None
+
+
+def issue_token(user):
+    Token.objects.filter(user=user).delete()
+    return Token.objects.create(user=user)
+
+
 # ------------------------------------------------------------------ auth
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def send_otp(request):
+    """Registration OTP."""
     email = clean_email(request)
     if not email:
         return err("Enter a valid email address.")
-    if User.objects.filter(email__iexact=email).exists() or User.objects.filter(username__iexact=email).exists():
+    if email_taken(email):
         return err("This email is already registered. Please log in.")
-    last = EmailOTP.objects.filter(email=email).order_by("-created_at").first()
-    if last and timezone.now() - last.created_at < timedelta(seconds=60):
+    if too_soon(email, "register"):
         return err("Please wait 60 seconds before requesting another OTP.", 429)
-    code = f"{secrets.randbelow(10**6):06d}"
-    otp = EmailOTP.objects.create(email=email, code_hash=make_password(code))
+    code, otp = new_otp(email, "register")
     try:
-        send_otp_email(email, code)
+        send_otp_email(email, code, "register")
     except Exception:
         log.exception("OTP email could not be sent")
         otp.delete()
@@ -73,43 +105,96 @@ def register(request):
         return err("Name and a valid email are required.")
     if len(password) < 8:
         return err("Password must be at least 8 characters.")
-    if User.objects.filter(email__iexact=email).exists() or User.objects.filter(username__iexact=email).exists():
+    if email_taken(email):
         return err("This email is already registered.")
-    otp = EmailOTP.objects.filter(email=email, used=False).order_by("-created_at").first()
-    if not otp or timezone.now() - otp.created_at > timedelta(minutes=10):
-        return err("OTP expired. Request a new one.")
-    if otp.attempts >= 5:
-        return err("Too many wrong attempts. Request a new OTP.")
-    if not check_password(code, otp.code_hash):
-        otp.attempts += 1
-        otp.save()
-        return err("Wrong OTP.")
+    otp, problem = check_otp(email, code, "register")
+    if problem:
+        return err(problem)
     otp.used = True
-    otp.save()
+    otp.save(update_fields=["used"])
     user = User.objects.create_user(username=email, email=email, password=password, first_name=name)
-    token, _ = Token.objects.get_or_create(user=user)
-    return Response({"token": token.key, "user": user_json(user)})
+    return Response({"token": issue_token(user).key, "user": user_json(user)})
 
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def login(request):
-    ident = str(request.data.get("email", "")).strip()
+    ident = str(request.data.get("email") or request.data.get("identifier") or "").strip()
     password = str(request.data.get("password", ""))
-    user = authenticate(username=ident.lower(), password=password) or authenticate(username=ident, password=password)
-    if not user:
-        for u in User.objects.filter(email__iexact=ident):
-            user = authenticate(username=u.username, password=password)
-            if user:
-                break
-    if not user:
-        return err("Wrong email/username or password.", 401)
-    token, _ = Token.objects.get_or_create(user=user)
-    return Response({"token": token.key, "user": user_json(user)})
+    users = list(User.objects.filter(username__iexact=ident)) + list(User.objects.filter(email__iexact=ident))
+    for u in users:
+        if u.check_password(password):
+            if not u.is_active:
+                return err("Your account has been blocked. Please contact the administrator.", 403)
+            token, _ = Token.objects.get_or_create(user=u)
+            return Response({"token": token.key, "user": user_json(u)})
+    return err("Wrong email/username or password.", 401)
+
 
 @api_view(["GET"])
 def me(request):
     return Response(user_json(request.user))
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def forgot_password(request):
+    """Password-reset OTP. The reply is the same whether or not the email is registered."""
+    email = clean_email(request)
+    if not email:
+        return err("Enter a valid email address.")
+    if too_soon(email, "reset"):
+        return err("Please wait 60 seconds before requesting another OTP.", 429)
+    code, otp = new_otp(email, "reset")        # row is created for any email so the rate limit leaks nothing
+    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    if user:
+        try:
+            send_otp_email(email, code, "reset")
+        except Exception:
+            log.exception("Reset OTP email could not be sent")
+            otp.delete()
+            return err("Could not send the OTP email right now. Please try again later.", 500)
+    return Response({"message": "If this email is registered, an OTP has been sent to it."})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def reset_password(request):
+    email = clean_email(request)
+    code = str(request.data.get("otp", "")).strip()
+    new_pw = str(request.data.get("new_password", ""))
+    if not email:
+        return err("Enter a valid email address.")
+    if len(new_pw) < 8:
+        return err("Password must be at least 8 characters.")
+    otp, problem = check_otp(email, code, "reset")
+    if problem:
+        return err(problem)
+    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    if not user:
+        return err("Wrong OTP.")
+    otp.used = True
+    otp.save(update_fields=["used"])
+    user.set_password(new_pw)
+    user.save()
+    Token.objects.filter(user=user).delete()     # log out everywhere
+    return Response({"message": "Password updated. Please log in with your new password."})
+
+
+@api_view(["POST"])
+def change_password(request):
+    """Logged-in users: no OTP, but the current password is required."""
+    cur = str(request.data.get("current_password", ""))
+    new_pw = str(request.data.get("new_password", ""))
+    if not request.user.check_password(cur):
+        return err("Current password is wrong.")
+    if len(new_pw) < 8:
+        return err("New password must be at least 8 characters.")
+    if new_pw == cur:
+        return err("New password must be different from the current one.")
+    request.user.set_password(new_pw)
+    request.user.save()
+    return Response({"message": "Password changed.", "token": issue_token(request.user).key})
 
 
 # ------------------------------------------------------------------ tests
@@ -155,7 +240,7 @@ def finalize(att, answers=None):
     c = w = 0
     for qid in att.question_ids:
         a = att.answers.get(str(qid))
-        if not a:
+        if not a or qid not in qs:
             continue
         if a == qs[qid].correct:
             c += 1
@@ -179,7 +264,7 @@ def start(request, pk):
     if not att:
         ids = []
         for s in test.sections.select_related("subject"):
-            pool = list(Question.objects.filter(subject=s.subject).values_list("id", flat=True))
+            pool = list(Question.objects.filter(subject=s.subject, is_active=True).values_list("id", flat=True))
             if len(pool) < s.num_questions:
                 return err(f"Not enough '{s.subject.name}' questions in the bank "
                            f"(need {s.num_questions}, have {len(pool)}). Contact the admin.")
@@ -225,21 +310,16 @@ def history(request):
     return Response(out)
 
 
-@api_view(["GET"])
-def result(request, pk):
-    att = get_object_or_404(Attempt, pk=pk, user=request.user)
-    if not att.submitted_at:
-        if timezone.now() >= att.ends_at:
-            finalize(att)
-        else:
-            return err("This test is still in progress.")
+def build_result(att):
     qs = Question.objects.select_related("subject").in_bulk(att.question_ids)
     n = len(att.question_ids)
     total = round(n * att.marks_per_question, 2)
     attempted = att.correct + att.incorrect
     secs, review = {}, []
     for qid in att.question_ids:
-        q = qs[qid]
+        q = qs.get(qid)
+        if q is None:
+            continue
         sel = att.answers.get(str(qid))
         status = "skipped" if not sel else ("correct" if sel == q.correct else "incorrect")
         s = secs.setdefault(q.subject.name, {"section": q.subject.name, "total": 0, "correct": 0,
@@ -251,7 +331,7 @@ def result(request, pk):
         review.append({"id": q.id, "section": q.subject.name, "text": q.text,
                        "options": [q.option_a, q.option_b, q.option_c, q.option_d],
                        "selected": sel, "correct": q.correct, "status": status, "explanation": q.explanation})
-    return Response({
+    return {
         "test": att.test.name, "total_questions": n, "attempted": attempted, "correct": att.correct,
         "incorrect": att.incorrect, "unattempted": att.unattempted, "score": att.score, "total_marks": total,
         "percentage": round(att.score / total * 100, 2) if total else 0,
@@ -259,14 +339,26 @@ def result(request, pk):
         "marks_per_question": att.marks_per_question, "negative_marks": att.negative_marks,
         "marks_lost": round(att.incorrect * att.negative_marks, 2),
         "time_taken_seconds": int((att.submitted_at - att.started_at).total_seconds()),
-        "duration_minutes": att.duration_minutes, "sections": list(secs.values()), "review": review})
+        "duration_minutes": att.duration_minutes, "sections": list(secs.values()), "review": review}
 
 
-# ------------------------------------------------------------------ admin helpers
+@api_view(["GET"])
+def result(request, pk):
+    att = get_object_or_404(Attempt, pk=pk, user=request.user)
+    if not att.submitted_at:
+        if timezone.now() >= att.ends_at:
+            finalize(att)
+        else:
+            return err("This test is still in progress.")
+    return Response(build_result(att))
+
+
+# ------------------------------------------------------------------ question bank (admin)
 @api_view(["GET"])
 @permission_classes([IsAdminUser])
 def stats(request):
-    rows = Subject.objects.annotate(n=Count("questions")).values("name", "n").order_by("name")
+    rows = Subject.objects.annotate(n=Count("questions", filter=Q(questions__is_active=True))) \
+        .values("name", "n").order_by("name")
     return Response(list(rows))
 
 

@@ -17,9 +17,13 @@ def import_rows(rows):
             errors.append(f"Row {i}: empty field or 'correct' is not A/B/C/D")
             continue
         s, _ = Subject.objects.get_or_create(name=subject)
-        _, new = Question.objects.get_or_create(
+        q, new = Question.objects.get_or_create(
             subject=s, text=text,
             defaults=dict(option_a=opts[0], option_b=opts[1], option_c=opts[2], option_d=opts[3],
                           correct=ans, explanation=r.get("explanation", "")))
+        if not new and not q.is_active:
+            q.is_active = True
+            q.save(update_fields=["is_active"])
+            new = True
         created += 1 if new else 0
     return created, errors

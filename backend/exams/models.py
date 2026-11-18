@@ -9,6 +9,7 @@ class EmailOTP(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     attempts = models.PositiveSmallIntegerField(default=0)
     used = models.BooleanField(default=False)
+    purpose = models.CharField(max_length=10, default="register", db_index=True)  # register | reset
 
 
 class Subject(models.Model):
@@ -27,6 +28,7 @@ class Question(models.Model):
     option_d = models.CharField(max_length=500)
     correct = models.CharField(max_length=1, choices=[(c, c) for c in "ABCD"])
     explanation = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)  # "deleted" questions are only deactivated so old results keep working
 
     def __str__(self):
         return f"[{self.subject}] {self.text[:60]}"
