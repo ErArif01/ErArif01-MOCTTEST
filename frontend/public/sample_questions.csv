@@ -1,0 +1,51 @@
+subject,question,a,b,c,d,correct,explanation
+Computer,Which OSI layer does a router work at?,Physical,Data Link,Network,Transport,C,Routers forward IP packets (Layer 3)
+Computer,Default port number of HTTPS is?,80,443,21,25,B,"HTTP 80, HTTPS 443"
+Computer,How many usable hosts are there in a /26 subnet?,30,62,64,126,B,2^6 - 2 = 62
+Computer,Which protocol maps an IP address to a MAC address?,RARP,ICMP,ARP,DHCP,C,ARP = IP to MAC
+Computer,IPv6 address length is?,32 bits,64 bits,128 bits,256 bits,C,"IPv4 is 32, IPv6 is 128"
+Computer,Which of these is a connectionless protocol?,TCP,UDP,FTP,SMTP,B,UDP has no handshake
+Computer,SQL command that removes all rows quickly but keeps the table structure?,DROP,DELETE,TRUNCATE,REMOVE,C,"TRUNCATE is DDL, keeps structure"
+Computer,A key that uniquely identifies each row and cannot be NULL is?,Foreign key,Primary key,Alternate key,Composite index,B,Primary key
+Computer,Third Normal Form removes?,Partial dependency,Transitive dependency,Multivalued dependency,Redundant tables,B,3NF: no transitive dependency
+Computer,Which SQL clause filters groups after GROUP BY?,WHERE,HAVING,ORDER BY,LIMIT,B,HAVING filters aggregates
+Computer,"In ACID, the letter 'I' stands for?",Integrity,Isolation,Indexing,Inheritance,B,"Atomicity, Consistency, Isolation, Durability"
+Computer,Which join returns all rows of the left table plus matches from the right?,INNER JOIN,LEFT OUTER JOIN,CROSS JOIN,SELF JOIN,B,Left outer join
+Computer,Which of these is a DDL command?,SELECT,INSERT,ALTER,UPDATE,C,"CREATE, ALTER, DROP are DDL"
+Computer,Which of these is a DML command?,CREATE,GRANT,UPDATE,DROP,C,"INSERT, UPDATE, DELETE, SELECT"
+Computer,Which is a necessary condition for deadlock?,Mutual exclusion,Pre-emption,Paging,Spooling,A,"Mutual exclusion, hold and wait, no pre-emption, circular wait"
+Computer,Which CPU scheduling gives minimum average waiting time?,FCFS,SJF,Round Robin,Priority,B,SJF is optimal for average waiting time
+Computer,Which RAID level uses disk mirroring?,RAID 0,RAID 1,RAID 5,RAID 6,B,"RAID 1 = mirror, RAID 0 = stripe"
+Computer,Which Linux command lists files in a directory?,cd,ls,mkdir,rm,B,ls = list
+Computer,Which Windows command shows IP configuration?,ipconfig,ifconfig,nslookup,netstat,A,ifconfig is Linux
+Computer,Which Windows command traces the route to a host?,tracert,traceroute,ping,arp,A,traceroute is the Linux name
+Computer,Virtual memory is commonly implemented using?,Paging,Spooling,Buffering,Caching only,A,Paging or segmentation
+Computer,Which one is a symmetric-key algorithm?,RSA,AES,ECC,DSA,B,"AES is symmetric, RSA is asymmetric"
+Computer,MIS stands for?,Management Information System,Machine Interface Software,Managed Internet Server,Main Index System,A,MIS
+Computer,In which topology does failure of the central device bring down the network?,Star,Mesh,Ring (dual),Hybrid mesh,A,Star depends on a central hub/switch
+Computer,A firewall is mainly used to?,Speed up the internet,Filter network traffic,Compress files,Back up data,B,Rule-based traffic filtering
+English,Synonym of 'Prudent'?,Careless,Wise,Rude,Weak,B,Prudent = sensible
+English,Antonym of 'Scarce'?,Rare,Plentiful,Few,Limited,B,Scarce means in short supply
+English,Choose the correct form: She ___ to office daily.,go,goes,going,gone,B,Singular subject takes 'goes'
+English,One word for 'a person who loves books'?,Bibliophile,Philatelist,Misanthrope,Egoist,A,Bibliophile
+English,Correct spelling?,Occurence,Occurrence,Ocurrence,Occurance,B,"Double c, double r"
+Reasoning,"Series: 2, 6, 12, 20, 30, ?",40,42,44,36,B,n(n+1): 6x7 = 42
+Reasoning,"Odd one out: Apple, Mango, Potato, Banana",Apple,Mango,Potato,Banana,C,Potato is a vegetable
+Reasoning,"If CAT = 3-1-20 (alphabet positions), DOG = ?",4-15-7,4-7-15,5-15-7,4-14-7,A,"D=4, O=15, G=7"
+Reasoning,A is B's brother and B is C's sister. A is C's what?,Brother,Uncle,Father,Cousin,A,Siblings
+Reasoning,"You face north, turn right, then right again. You now face?",South,East,West,North,A,"North, East, South"
+Aptitude,What is 25% of 480?,100,120,140,160,B,480/4 = 120
+Aptitude,"Average of 10, 20, 30, 40, 50?",25,30,35,40,B,150/5 = 30
+Aptitude,A 120 m train crosses a pole in 12 s. Speed in km/h?,36,30,40,48,A,10 m/s x 3.6 = 36
+Aptitude,Simple interest on Rs 5000 at 8% for 3 years?,1000,1200,1500,1800,B,5000x8x3/100
+Aptitude,Two numbers are in ratio 3:5 with sum 64. The larger is?,24,32,40,44,C,64 x 5/8 = 40
+Aptitude,"A does a job in 10 days, B in 15. Together they take?",5 days,6 days,8 days,7.5 days,B,1/10 + 1/15 = 1/6
+Aptitude,"Cost price Rs 800, selling price Rs 1000. Profit %?",20%,25%,30%,15%,B,200/800
+Aptitude,Square root of 1764?,42,44,46,48,A,42 x 42 = 1764
+GK,CONCOR is a PSU under which ministry?,Railways,Shipping,Commerce,Finance,A,Ministry of Railways
+GK,Capital of Australia?,Sydney,Canberra,Melbourne,Perth,B,Canberra
+GK,Who chaired the Drafting Committee of the Indian Constitution?,B.R. Ambedkar,J. Nehru,M. Gandhi,S. Patel,A,Dr. B.R. Ambedkar
+GK,Which body builds and runs the Dedicated Freight Corridors?,DFCCIL,IRCTC,RVNL,RITES,A,DFCCIL
+GK,SI unit of force?,Joule,Newton,Pascal,Watt,B,Newton
+GK,Most abundant gas in Earth's atmosphere?,Oxygen,Nitrogen,CO2,Argon,B,About 78% nitrogen
+GK,Which port does DNS use by default?,53,25,110,22,A,"DNS 53, SMTP 25, POP3 110, SSH 22"
