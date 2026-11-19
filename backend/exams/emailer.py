@@ -22,7 +22,7 @@ def send_otp_email(to_email, code, purpose="register"):
     sender = os.environ.get("BREVO_SENDER_EMAIL", "").strip()
     if key and sender:
         body = json.dumps({
-            "sender": {"name": os.environ.get("BREVO_SENDER_NAME", "Mock Test Portal"), "email": sender},
+            "sender": {"name": os.environ.get("BREVO_SENDER_NAME", "Exam Crack Study Point"), "email": sender},
             "to": [{"email": to_email}],
             "subject": subject,
             "textContent": text,

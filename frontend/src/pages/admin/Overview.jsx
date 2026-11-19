@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, fmtDate } from "../../api.js";
+import { api, fmtDate, rupee } from "../../api.js";
 import { Badge, pctText } from "./shared.jsx";
 
 export default function Overview() {
@@ -23,6 +23,12 @@ export default function Overview() {
         {S("Attempts submitted", d.attempts.submitted)}
         {S("Attempts (24h)", d.attempts.today)}
         {S("Average score", pctText(d.avg_percentage), "big")}
+        {S("Exams", d.exams)}
+        {S("Quizzes", d.quizzes)}
+        {S("News posts", d.news)}
+        {S("Vacancies", d.vacancies)}
+        {S("Revenue", rupee(d.revenue), "good")}
+        {S("Paid orders", d.paid_orders)}
       </div>
       <div className="card">
         <h2>Recent attempts</h2>

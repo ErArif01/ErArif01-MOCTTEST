@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../../api.js";
+import { api, rupee } from "../../api.js";
 import { Badge } from "./shared.jsx";
 
 export default function Tests() {
@@ -20,10 +20,10 @@ export default function Tests() {
           <thead><tr><th>Test</th><th>Paper</th><th>Time</th><th>Marks</th><th>Attempts</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>{tests.map((t) => (
             <tr key={t.id}>
-              <td><b>{t.name}</b>{t.description && <div className="muted">{t.description}</div>}</td>
+              <td><b>{t.name}</b><div className="muted">{t.exam} &bull; {t.test_type}</div></td>
               <td>{t.total_questions} Q<div className="muted">{t.sections.map((s) => `${s.subject} ${s.count}`).join(", ")}</div></td>
               <td>{t.duration_minutes} min</td>
-              <td>+{t.marks_per_question} / -{t.negative_marks}</td>
+              <td>+{t.marks_per_question} / -{t.negative_marks}<div>{t.is_paid ? <Badge kind="bad">{rupee(t.price)}</Badge> : <Badge kind="good">Free</Badge>}</div></td>
               <td>{t.n_submitted} / {t.n_attempts}</td>
               <td>{t.is_active ? <Badge kind="good">Live</Badge> : <Badge>Hidden</Badge>}</td>
               <td className="acts">

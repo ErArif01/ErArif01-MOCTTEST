@@ -1,7 +1,7 @@
 from .models import Question, Subject
 
 
-def import_rows(rows):
+def import_rows(rows, exam):
     """rows: iterable of dicts with columns subject,question,a,b,c,d,correct,explanation"""
     created, errors = 0, []
     for i, raw in enumerate(rows, start=2):
@@ -18,7 +18,7 @@ def import_rows(rows):
             continue
         s, _ = Subject.objects.get_or_create(name=subject)
         q, new = Question.objects.get_or_create(
-            subject=s, text=text,
+            exam=exam, subject=s, text=text,
             defaults=dict(option_a=opts[0], option_b=opts[1], option_c=opts[2], option_d=opts[3],
                           correct=ans, explanation=r.get("explanation", "")))
         if not new and not q.is_active:

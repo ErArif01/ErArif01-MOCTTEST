@@ -11,7 +11,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
-from .models import Attempt, Question, Subject, Test, TestSection
+from .models import Attempt, Exam, NewsPost, Order, Question, Quiz, SiteConfig, Subject, Test, TestSection, Vacancy
 from .views import build_result, err, finalize, test_json
 
 PAGE = 20
@@ -65,6 +65,10 @@ def overview(request):
                   "new_7d": User.objects.filter(date_joined__gte=now - timedelta(days=7)).count()},
         "tests": {"total": Test.objects.count(), "active": Test.objects.filter(is_active=True).count()},
         "questions": Question.objects.filter(is_active=True).count(),
+        "exams": Exam.objects.count(), "news": NewsPost.objects.count(), "vacancies": Vacancy.objects.count(),
+        "quizzes": Quiz.objects.count(),
+        "revenue": sum(Order.objects.filter(status="paid").values_list("amount", flat=True)),
+        "paid_orders": Order.objects.filter(status="paid").count(),
         "attempts": {"total": Attempt.objects.count(), "submitted": Attempt.objects.filter(submitted_at__isnull=False).count(),
                      "today": Attempt.objects.filter(started_at__gte=now - timedelta(days=1)).count()},
         "avg_percentage": round(sum(pcts) / len(pcts), 2) if pcts else None,
@@ -232,11 +236,26 @@ def parse_test(data):
         raise ValueError("Duration must be between 1 and 600 minutes.")
     if marks <= 0 or neg < 0:
         raise ValueError("Marks must be above 0 and negative marks cannot be below 0.")
+    exam = Exam.objects.filter(pk=data.get("exam") or 0).first()
+    if not exam:
+        raise ValueError("Choose the exam this test belongs to.")
+    test_type = str(data.get("test_type", "mock"))
+    if test_type not in ("mock", "sectional", "pyp", "topic"):
+        raise ValueError("Invalid test type.")
+    is_paid = bool(data.get("is_paid", False))
+    try:
+        price = int(data.get("price") or 0)
+    except (TypeError, ValueError):
+        raise ValueError("Price must be a whole number of rupees.")
+    if is_paid and price < 1:
+        raise ValueError("A paid test needs a price of at least Rs 1.")
     secs, seen = [], set()
     for s in data.get("sections") or []:
         subj = Subject.objects.filter(name=str(s.get("subject", "")).strip()).first()
         if not subj:
             raise ValueError(f"Subject '{s.get('subject')}' does not exist. Upload questions for it first.")
+        if not Question.objects.filter(exam=exam, subject=subj, is_active=True).exists():
+            raise ValueError(f"The exam '{exam.name}' has no '{subj.name}' questions. Upload them first.")
         try:
             n = int(s.get("num_questions"))
         except (TypeError, ValueError):
@@ -251,7 +270,8 @@ def parse_test(data):
         raise ValueError("Add at least one section.")
     fields = dict(name=name, description=str(data.get("description", "")).strip()[:300],
                   duration_minutes=duration, marks_per_question=marks, negative_marks=neg,
-                  instructions=str(data.get("instructions", "")).strip(), is_active=bool(data.get("is_active", True)))
+                  instructions=str(data.get("instructions", "")).strip(), is_active=bool(data.get("is_active", True)),
+                  exam=exam, test_type=test_type, is_paid=is_paid, price=price if is_paid else 0)
     return fields, secs
 
 
@@ -265,7 +285,9 @@ def _save_sections(t, secs):
 @admin_only
 def admin_tests(request):
     if request.method == "GET":
-        qs = Test.objects.order_by("-created_at").prefetch_related("sections__subject")
+        qs = Test.objects.order_by("-created_at").prefetch_related("sections__subject").select_related("exam")
+        if request.GET.get("exam"):
+            qs = qs.filter(exam_id=request.GET["exam"])
         return Response([test_admin_json(t) for t in qs])
     try:
         fields, secs = parse_test(request.data)
@@ -311,19 +333,22 @@ def toggle_test(request, pk):
 
 # ------------------------------------------------------------------ question bank CRUD
 def q_json(q):
-    return {"id": q.id, "subject": q.subject.name, "text": q.text,
+    return {"id": q.id, "exam_id": q.exam_id, "subject": q.subject.name, "text": q.text,
             "options": [q.option_a, q.option_b, q.option_c, q.option_d], "correct": q.correct,
             "explanation": q.explanation}
 
 
 def parse_question(d):
+    exam = Exam.objects.filter(pk=d.get("exam") or 0).first()
+    if not exam:
+        raise ValueError("Choose the exam for this question.")
     subject = str(d.get("subject", "")).strip()
     text = str(d.get("text", "")).strip()
     opts = [str(d.get(k, "")).strip() for k in "abcd"]
     correct = str(d.get("correct", "")).strip().upper()
     if not (subject and text and all(opts) and correct in ("A", "B", "C", "D")):
         raise ValueError("Subject, question, all four options and the correct option (A-D) are required.")
-    return subject, text, opts, correct, str(d.get("explanation", "")).strip()
+    return exam, subject, text, opts, correct, str(d.get("explanation", "")).strip()
 
 
 @api_view(["GET", "POST"])
@@ -331,14 +356,16 @@ def parse_question(d):
 def admin_questions(request):
     if request.method == "POST":
         try:
-            subject, text, o, c, exp = parse_question(request.data)
+            exam, subject, text, o, c, exp = parse_question(request.data)
         except ValueError as e:
             return err(str(e))
         s, _ = Subject.objects.get_or_create(name=subject)
-        q = Question.objects.create(subject=s, text=text, option_a=o[0], option_b=o[1], option_c=o[2],
+        q = Question.objects.create(exam=exam, subject=s, text=text, option_a=o[0], option_b=o[1], option_c=o[2],
                                     option_d=o[3], correct=c, explanation=exp)
         return Response(q_json(q), status=201)
     qs = Question.objects.filter(is_active=True).select_related("subject").order_by("-id")
+    if request.GET.get("exam"):
+        qs = qs.filter(exam_id=request.GET["exam"])
     if request.GET.get("subject"):
         qs = qs.filter(subject__name=request.GET["subject"])
     if request.GET.get("q", "").strip():
@@ -356,10 +383,46 @@ def admin_question_detail(request, pk):
         q.save(update_fields=["is_active"])
         return Response({"ok": True})
     try:
-        subject, text, o, c, exp = parse_question(request.data)
+        exam, subject, text, o, c, exp = parse_question(request.data)
     except ValueError as e:
         return err(str(e))
+    q.exam = exam
     q.subject, _ = Subject.objects.get_or_create(name=subject)
     q.text, q.option_a, q.option_b, q.option_c, q.option_d, q.correct, q.explanation = text, *o, c, exp
     q.save()
     return Response(q_json(q))
+
+
+# ------------------------------------------------------------------ payments & site config
+@api_view(["GET"])
+@admin_only
+def admin_payments(request):
+    qs = Order.objects.select_related("user", "test").order_by("-created_at")
+    if request.GET.get("status"):
+        qs = qs.filter(status=request.GET["status"])
+    rows, meta = paginate(qs, request)
+    paid = Order.objects.filter(status="paid")
+    return Response({**meta, "revenue": sum(paid.values_list("amount", flat=True)), "paid_count": paid.count(),
+                     "results": [{"id": o.id, "user": o.user.first_name or o.user.username, "email": o.user.email,
+                                  "test": o.test.name, "amount": o.amount, "status": o.status,
+                                  "order_id": o.razorpay_order_id, "payment_id": o.razorpay_payment_id,
+                                  "created_at": o.created_at, "paid_at": o.paid_at} for o in rows]})
+
+
+@api_view(["GET", "PUT"])
+@admin_only
+def admin_config(request):
+    c = SiteConfig.get()
+    if request.method == "PUT":
+        d = request.data
+        c.hourly_enabled = bool(d.get("hourly_enabled", True))
+        c.hourly_exam = Exam.objects.filter(pk=d.get("hourly_exam") or 0).first()
+        c.hourly_subject = Subject.objects.filter(pk=d.get("hourly_subject") or 0).first()
+        try:
+            c.hourly_count = max(1, min(50, int(d.get("hourly_count") or 10)))
+        except (TypeError, ValueError):
+            return err("Question count must be a number.")
+        c.save()
+    return Response({"hourly_enabled": c.hourly_enabled, "hourly_exam": c.hourly_exam_id,
+                     "hourly_subject": c.hourly_subject_id, "hourly_count": c.hourly_count,
+                     "subjects": list(Subject.objects.order_by("name").values("id", "name"))})

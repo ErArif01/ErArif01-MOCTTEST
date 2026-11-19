@@ -15,7 +15,7 @@ from rest_framework.response import Response
 
 from .emailer import send_otp_email
 from .importer import import_rows
-from .models import Attempt, EmailOTP, Question, Subject, Test
+from .models import Attempt, EmailOTP, Exam, Order, Question, Subject, Test
 
 LETTERS = ("A", "B", "C", "D")
 log = logging.getLogger(__name__)
@@ -202,7 +202,8 @@ def test_json(t):
     return {"id": t.id, "name": t.name, "description": t.description, "duration_minutes": t.duration_minutes,
             "total_questions": t.total_questions, "total_marks": t.total_marks,
             "marks_per_question": t.marks_per_question, "negative_marks": t.negative_marks,
-            "instructions": t.instructions,
+            "instructions": t.instructions, "exam_id": t.exam_id, "exam": t.exam.name if t.exam_id else "",
+            "test_type": t.test_type, "is_paid": t.is_paid, "price": t.price,
             "sections": [{"subject": s.subject.name, "count": s.num_questions} for s in t.sections.all()]}
 
 
@@ -214,7 +215,17 @@ def tests(request):
 
 @api_view(["GET"])
 def test_detail(request, pk):
-    return Response(test_json(get_object_or_404(Test, pk=pk, is_active=True)))
+    t = get_object_or_404(Test, pk=pk, is_active=True)
+    d = test_json(t)
+    d["purchased"] = has_access(request.user, t)
+    return Response(d)
+
+
+def has_access(user, test):
+    """Free tests are open to everyone; paid tests need a paid order (staff always have access)."""
+    if not test.is_paid or user.is_staff:
+        return True
+    return Order.objects.filter(user=user, test=test, status="paid").exists()
 
 
 def attempt_payload(att):
@@ -257,6 +268,8 @@ def finalize(att, answers=None):
 @api_view(["POST"])
 def start(request, pk):
     test = get_object_or_404(Test, pk=pk, is_active=True)
+    if not has_access(request.user, test):
+        return err("This is a paid test. Please purchase it to start.", 402)
     att = Attempt.objects.filter(user=request.user, test=test, submitted_at__isnull=True).first()
     if att and timezone.now() >= att.ends_at:
         finalize(att)
@@ -264,7 +277,7 @@ def start(request, pk):
     if not att:
         ids = []
         for s in test.sections.select_related("subject"):
-            pool = list(Question.objects.filter(subject=s.subject, is_active=True).values_list("id", flat=True))
+            pool = list(Question.objects.filter(exam_id=test.exam_id, subject=s.subject, is_active=True).values_list("id", flat=True))
             if len(pool) < s.num_questions:
                 return err(f"Not enough '{s.subject.name}' questions in the bank "
                            f"(need {s.num_questions}, have {len(pool)}). Contact the admin.")
@@ -357,14 +370,21 @@ def result(request, pk):
 @api_view(["GET"])
 @permission_classes([IsAdminUser])
 def stats(request):
-    rows = Subject.objects.annotate(n=Count("questions", filter=Q(questions__is_active=True))) \
-        .values("name", "n").order_by("name")
+    cond = Q(questions__is_active=True)
+    if request.GET.get("exam"):
+        cond &= Q(questions__exam_id=request.GET["exam"])
+    rows = Subject.objects.annotate(n=Count("questions", filter=cond)).values("name", "n").order_by("name")
+    if request.GET.get("exam"):
+        rows = [r for r in rows if r["n"] > 0]
     return Response(list(rows))
 
 
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
 def upload_questions(request):
+    exam = Exam.objects.filter(pk=request.data.get("exam") or 0).first()
+    if not exam:
+        return err("Choose the exam these questions belong to.")
     f = request.FILES.get("file")
     if not f:
         return err("Choose a CSV file.")
@@ -372,5 +392,5 @@ def upload_questions(request):
         text = f.read().decode("utf-8-sig")
     except UnicodeDecodeError:
         return err("Save the CSV as UTF-8 and try again.")
-    created, errors = import_rows(csv.DictReader(io.StringIO(text)))
+    created, errors = import_rows(csv.DictReader(io.StringIO(text)), exam)
     return Response({"created": created, "errors": errors[:50]})

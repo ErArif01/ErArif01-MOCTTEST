@@ -13,7 +13,7 @@ export function Login({ onAuth }) {
   };
   return (
     <form className="card auth" onSubmit={go}>
-      <h1>Login</h1>
+      <h1>Login to Exam Crack Study Point</h1>
       <label>Email or username<input type="text" required autoComplete="username" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></label>
       <label>Password<input type="password" required autoComplete="current-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
       {err && <p className="err" role="alert">{err}</p>}

@@ -44,7 +44,7 @@ export default function Instructions() {
           {extra.map((x, i) => <li key={i}>{x}</li>)}
         </ol>
         <label className="chk"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} /> I have read and understood all the instructions. I agree to follow them.</label>
-        <div className="bar"><button className="pri" disabled={!ok} onClick={() => nav(`/exam/${testId}`)}>I am ready to begin</button></div>
+        <div className="bar"><button className="pri" disabled={!ok} onClick={() => nav(`/take/${testId}`)}>I am ready to begin</button></div>
       </div>
     </div>
   );

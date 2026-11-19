@@ -69,6 +69,18 @@ STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
+# Optional S3-compatible storage (Cloudflare R2, AWS S3, Supabase Storage ...) so uploads survive redeploys.
+if os.environ.get("S3_BUCKET"):
+    _s3 = {"bucket_name": os.environ["S3_BUCKET"], "access_key": os.environ.get("S3_ACCESS_KEY", ""),
+           "secret_key": os.environ.get("S3_SECRET_KEY", ""), "endpoint_url": os.environ.get("S3_ENDPOINT_URL") or None,
+           "region_name": os.environ.get("S3_REGION") or None, "querystring_auth": False, "default_acl": None,
+           "file_overwrite": False}
+    if os.environ.get("S3_PUBLIC_URL"):
+        _s3["custom_domain"] = os.environ["S3_PUBLIC_URL"].replace("https://", "").replace("http://", "").rstrip("/")
+    STORAGES["default"] = {"BACKEND": "storages.backends.s3.S3Storage", "OPTIONS": _s3}
+USE_S3 = bool(os.environ.get("S3_BUCKET"))
 WHITENOISE_ROOT = DIST if DIST.exists() else None
 WHITENOISE_INDEX_FILE = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

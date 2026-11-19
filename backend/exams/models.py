@@ -12,6 +12,40 @@ class EmailOTP(models.Model):
     purpose = models.CharField(max_length=10, default="register", db_index=True)  # register | reset
 
 
+class Category(models.Model):
+    """Top-level card on the home page: Railways, SSC, Banking, UPSSSC ..."""
+    name = models.CharField(max_length=120)
+    icon = models.CharField(max_length=8, default="\U0001F4DA", blank=True)
+    color = models.CharField(max_length=9, default="#0b4f8a")
+    description = models.CharField(max_length=200, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return self.name
+
+
+class Exam(models.Model):
+    """A vacancy / post inside a category: RRB ALP, RRB Group D, SSC CGL ... Each exam has its own question bank."""
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="exams")
+    name = models.CharField(max_length=150)
+    icon = models.CharField(max_length=8, default="\U0001F3AF", blank=True)
+    color = models.CharField(max_length=9, blank=True)
+    description = models.CharField(max_length=250, blank=True)
+    syllabus = models.TextField(blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.category} / {self.name}"
+
+
 class Subject(models.Model):
     name = models.CharField(max_length=100, unique=True)
 
@@ -28,6 +62,7 @@ class Question(models.Model):
     option_d = models.CharField(max_length=500)
     correct = models.CharField(max_length=1, choices=[(c, c) for c in "ABCD"])
     explanation = models.TextField(blank=True)
+    exam = models.ForeignKey(Exam, null=True, blank=True, on_delete=models.CASCADE, related_name="questions")
     is_active = models.BooleanField(default=True)  # "deleted" questions are only deactivated so old results keep working
 
     def __str__(self):
@@ -46,6 +81,11 @@ class Test(models.Model):
     instructions = models.TextField(blank=True, help_text="Extra instructions (one per line). General instructions are always shown.")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    exam = models.ForeignKey(Exam, null=True, blank=True, on_delete=models.CASCADE, related_name="tests")
+    test_type = models.CharField(max_length=10, default="mock", choices=[
+        ("mock", "Full mock test"), ("sectional", "Sectional test"), ("pyp", "Previous year paper"), ("topic", "Topic test")])
+    is_paid = models.BooleanField(default=False)
+    price = models.PositiveIntegerField(default=0, help_text="Price in rupees (paid tests only)")
 
     @property
     def total_questions(self):
@@ -88,3 +128,89 @@ class Attempt(models.Model):
     @property
     def ends_at(self):
         return self.started_at + timedelta(minutes=self.duration_minutes)
+
+
+class Order(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    test = models.ForeignKey(Test, on_delete=models.CASCADE)
+    amount = models.PositiveIntegerField()                       # rupees
+    razorpay_order_id = models.CharField(max_length=60, unique=True)
+    razorpay_payment_id = models.CharField(max_length=60, blank=True)
+    status = models.CharField(max_length=10, default="created", db_index=True)   # created | paid
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+
+class Quiz(models.Model):
+    """Small quiz shown on the home page. kind=hourly is generated automatically every hour."""
+    title = models.CharField(max_length=200)
+    description = models.CharField(max_length=300, blank=True)
+    kind = models.CharField(max_length=10, default="manual")     # manual | hourly
+    exam = models.ForeignKey(Exam, null=True, blank=True, on_delete=models.SET_NULL)
+    question_ids = models.JSONField(default=list)
+    hour_start = models.DateTimeField(null=True, blank=True, unique=True)
+    is_featured = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class QuizAttempt(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="attempts")
+    answers = models.JSONField(default=dict)
+    correct = models.PositiveIntegerField(default=0)
+    total = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "quiz")
+
+
+class SiteConfig(models.Model):
+    """Single row: settings for the automatic hourly quiz."""
+    hourly_enabled = models.BooleanField(default=True)
+    hourly_exam = models.ForeignKey(Exam, null=True, blank=True, on_delete=models.SET_NULL)
+    hourly_subject = models.ForeignKey(Subject, null=True, blank=True, on_delete=models.SET_NULL)
+    hourly_count = models.PositiveIntegerField(default=10)
+
+    @classmethod
+    def get(cls):
+        return cls.objects.get_or_create(pk=1)[0]
+
+
+NEWS_CATEGORIES = [("news", "Latest news"), ("result", "Result"), ("admit_card", "Admit card"),
+                   ("answer_key", "Answer key"), ("form_guide", "How to fill form"),
+                   ("solution", "Test solution"), ("syllabus", "Syllabus"), ("job", "Job alert")]
+
+
+class NewsPost(models.Model):
+    title = models.CharField(max_length=250)
+    category = models.CharField(max_length=12, default="news", choices=NEWS_CATEGORIES)
+    summary = models.CharField(max_length=300, blank=True)
+    body = models.TextField(blank=True)
+    image = models.FileField(upload_to="news/images/", blank=True)
+    video = models.FileField(upload_to="news/videos/", blank=True)
+    video_url = models.URLField(blank=True, help_text="YouTube or any video link")
+    exam = models.ForeignKey(Exam, null=True, blank=True, on_delete=models.SET_NULL)
+    is_pinned = models.BooleanField(default=False)
+    is_published = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class Vacancy(models.Model):
+    title = models.CharField(max_length=250)
+    organization = models.CharField(max_length=200, blank=True)
+    total_posts = models.PositiveIntegerField(null=True, blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    last_date = models.DateField(null=True, blank=True)
+    qualification = models.TextField(blank=True)
+    age_limit = models.CharField(max_length=150, blank=True)
+    fee = models.CharField(max_length=200, blank=True)
+    description = models.TextField(blank=True)
+    posts = models.JSONField(default=list, blank=True)           # [{"name","count","qualification"}]
+    notification_url = models.URLField(blank=True)
+    apply_url = models.URLField(blank=True)
+    exam = models.ForeignKey(Exam, null=True, blank=True, on_delete=models.SET_NULL)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
