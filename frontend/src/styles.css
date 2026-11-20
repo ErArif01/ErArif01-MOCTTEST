@@ -131,3 +131,13 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;word-break:break-wor
 .rowsbox{display:flex;flex-direction:column;gap:6px;align-items:flex-start}.rowsbox .secrow{width:100%}.rowsbox .secrow input{flex:1 1 140px;width:auto}
 .modal.wide{max-width:760px}
 @media(max-width:560px){.exhead{flex-direction:column;align-items:flex-start}.hero{padding:20px 10px}.herostats{gap:12px}}
+/* ===== inline add-new, QR payment ===== */
+.field{display:flex;flex-direction:column;gap:4px;font-size:.95rem;min-width:0}.flabel{font-size:.95rem}
+.selectadd{display:flex;flex-direction:column;gap:6px;min-width:0}
+.selectadd>label{gap:4px}
+.addbox{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px;border:1px dashed var(--ac);border-radius:8px;background:color-mix(in srgb,var(--ac) 6%,transparent)}
+.addbox input,.addbox select{flex:1 1 160px;width:auto}
+.report{border:1px solid var(--bd);border-radius:8px;padding:10px;margin-top:10px}
+.qrbox{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin:10px 0}
+.qrimg{max-width:140px;border:1px solid var(--bd);border-radius:8px;background:#fff;vertical-align:middle}.qrimg.big{max-width:220px;width:100%}
+.steps{padding-left:1.2em}.steps li{margin:4px 0}

@@ -61,7 +61,7 @@ export function VideoBlock({ file, url }) {
 export function OptionRow({ letter, text, state, onPick, name, checked }) {
   const Tag = onPick ? "label" : "div";
   return (
-    <Tag className={"opt" + (onPick ? "" : " static") + (state ? " " + state : "")}>
+    <Tag className={"opt" + (onPick ? "" : " static") + (state ? " " + state : checked ? " sel" : "")}>
       {onPick && <input type="radio" className="sr" name={name} checked={checked} onChange={onPick} />}
       <span className="ob">{letter}</span><span className="ot">{text}</span>
     </Tag>

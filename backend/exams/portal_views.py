@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import random
+import re
+import uuid
 import time
 from datetime import timedelta
 import urllib.error
@@ -20,9 +22,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .admin_api import paginate
-from .models import (NEWS_CATEGORIES, Attempt, Category, Exam, NewsPost, Order, Question, Quiz, QuizAttempt,
-                     SiteConfig, Test, Vacancy)
-from .views import err, has_access, test_json
+from .models import (Attempt, Category, Exam, NewsCategory, NewsPost, Order, Question, Quiz, QuizAttempt,
+                     SiteConfig, Test, TestType, Vacancy)
+from .views import err, has_access, test_json, type_map
 
 log = logging.getLogger(__name__)
 public = permission_classes([AllowAny])
@@ -55,8 +57,12 @@ def categories_payload():
     return out
 
 
-def news_json(n, full=False):
-    d = {"id": n.id, "title": n.title, "category": n.category, "category_label": dict(NEWS_CATEGORIES).get(n.category, ""),
+def news_cats():
+    return dict(NewsCategory.objects.values_list("key", "name"))
+
+
+def news_json(n, cmap, full=False):
+    d = {"id": n.id, "title": n.title, "category": n.category, "category_label": cmap.get(n.category, n.category),
          "summary": n.summary, "image": media(n.image), "has_video": bool(n.video or n.video_url),
          "is_pinned": n.is_pinned, "created_at": n.created_at, "exam_id": n.exam_id,
          "exam": n.exam.name if n.exam_id else ""}
@@ -210,7 +216,7 @@ def home(request):
     ov = quiz_overview(user)
     return Response({
         "categories": categories_payload(),
-        "news": [news_json(n) for n in NewsPost.objects.filter(is_published=True).select_related("exam")
+        "news": [news_json(n, news_cats()) for n in NewsPost.objects.filter(is_published=True).select_related("exam")
                  .order_by("-is_pinned", "-created_at")[:6]],
         "vacancies": [vac_json(v) for v in Vacancy.objects.filter(is_active=True).order_by("-created_at")[:6]],
         "quizzes": {"hourly": ov["hourly"], "featured": ov["featured"]},
@@ -240,16 +246,23 @@ def exam_detail(request, pk):
             tries[a.test_id] = tries.get(a.test_id, 0) + 1
             if a.test_id not in best or p > best[a.test_id][0]:
                 best[a.test_id] = (p, a.id)
+    manual = {}
+    if user:
+        for o in Order.objects.filter(user=user, test__in=tests, method="manual", status__in=("pending", "rejected")).order_by("created_at"):
+            manual[o.test_id] = (o.status, o.note)
+    tm = type_map()
     rows = []
     for t in tests:
-        d = test_json(t)
+        d = test_json(t, tm)
         d["purchased"] = (not t.is_paid) or t.id in paid or bool(user and user.is_staff)
+        d["pay_status"], d["pay_note"] = (None, "") if d["purchased"] else manual.get(t.id, (None, ""))
         d["attempts"] = tries.get(t.id, 0)
         d["best_percentage"], d["best_attempt"] = best.get(t.id, (None, None))
         rows.append(d)
     return Response({"exam": {"id": e.id, "name": e.name, "icon": e.icon, "color": e.color or e.category.color,
                               "description": e.description, "syllabus": e.syllabus,
-                              "category": {"id": e.category_id, "name": e.category.name}}, "tests": rows})
+                              "category": {"id": e.category_id, "name": e.category.name}}, "tests": rows,
+                     "test_types": [{"key": k, "name": n} for k, n in tm.items() if any(t.test_type == k for t in tests)]})
 
 
 @api_view(["GET"])
@@ -259,14 +272,16 @@ def news_list(request):
     if request.GET.get("category"):
         qs = qs.filter(category=request.GET["category"])
     rows, meta = paginate(qs, request, 12)
-    return Response({**meta, "results": [news_json(n) for n in rows],
-                     "categories": [{"value": k, "label": v} for k, v in NEWS_CATEGORIES]})
+    cm = news_cats()
+    used = set(NewsPost.objects.filter(is_published=True).values_list("category", flat=True))
+    return Response({**meta, "results": [news_json(n, cm) for n in rows],
+                     "categories": [{"value": k, "label": v} for k, v in cm.items() if k in used]})
 
 
 @api_view(["GET"])
 @public
 def news_detail(request, pk):
-    return Response(news_json(get_object_or_404(NewsPost.objects.select_related("exam"), pk=pk, is_published=True), True))
+    return Response(news_json(get_object_or_404(NewsPost.objects.select_related("exam"), pk=pk, is_published=True), news_cats(), True))
 
 
 @api_view(["GET"])
@@ -292,7 +307,10 @@ def rzp_keys():
 @public
 def site_config(request):
     kid, sec = rzp_keys()
-    return Response({"payments_enabled": bool(kid and sec), "razorpay_key_id": kid if sec else ""})
+    c = SiteConfig.get()
+    manual = {"enabled": bool(c.manual_enabled and (c.upi_id or c.upi_qr)), "upi_id": c.upi_id, "payee_name": c.payee_name,
+              "qr_url": c.upi_qr.url if c.upi_qr else "", "note": c.manual_note}
+    return Response({"payments_enabled": bool(kid and sec), "razorpay_key_id": kid if sec else "", "manual": manual})
 
 
 def razorpay_create_order(amount_paise, receipt, notes):
@@ -364,3 +382,30 @@ def razorpay_webhook(request):
     except (ValueError, KeyError):
         return err("Bad payload.", 400)
     return Response({"ok": True})
+
+
+@api_view(["POST"])
+def manual_payment(request):
+    """User paid by UPI / QR code and submits the transaction id. The admin verifies and approves."""
+    c = SiteConfig.get()
+    if not (c.manual_enabled and (c.upi_id or c.upi_qr)):
+        return err("QR / UPI payment is not enabled.", 503)
+    test = get_object_or_404(Test, pk=request.data.get("test_id") or 0, is_active=True, is_paid=True)
+    if has_access(request.user, test):
+        return err("You already have access to this test.")
+    utr = str(request.data.get("utr", "")).strip()
+    if not re.fullmatch(r"[A-Za-z0-9\-]{6,40}", utr):
+        return err("Enter the UPI transaction / UTR number (6 to 40 letters or digits).")
+    if Order.objects.filter(utr__iexact=utr).exists():
+        return err("This transaction ID was already submitted.")
+    if Order.objects.filter(user=request.user, test=test, status="pending").exists():
+        return err("Your previous payment for this test is still being verified.")
+    shot = request.FILES.get("screenshot")
+    if shot:
+        if os.path.splitext(shot.name)[1].lower() not in (".jpg", ".jpeg", ".png", ".webp"):
+            return err("Screenshot must be a jpg, png or webp image.")
+        if shot.size > 5 * 1024 * 1024:
+            return err("Screenshot must be under 5 MB.")
+    Order.objects.create(user=request.user, test=test, amount=test.price, razorpay_order_id="manual-" + uuid.uuid4().hex,
+                         method="manual", status="pending", utr=utr, screenshot=shot or "")
+    return Response({"ok": True, "message": "Payment submitted. The admin will verify it and unlock the test shortly."})

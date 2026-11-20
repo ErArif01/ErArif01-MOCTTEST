@@ -20,7 +20,7 @@ export default function Tests() {
           <thead><tr><th>Test</th><th>Paper</th><th>Time</th><th>Marks</th><th>Attempts</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>{tests.map((t) => (
             <tr key={t.id}>
-              <td><b>{t.name}</b><div className="muted">{t.exam} &bull; {t.test_type}</div></td>
+              <td><b>{t.name}</b><div className="muted">{t.exam} &bull; {t.test_type_name}</div></td>
               <td>{t.total_questions} Q<div className="muted">{t.sections.map((s) => `${s.subject} ${s.count}`).join(", ")}</div></td>
               <td>{t.duration_minutes} min</td>
               <td>+{t.marks_per_question} / -{t.negative_marks}<div>{t.is_paid ? <Badge kind="bad">{rupee(t.price)}</Badge> : <Badge kind="good">Free</Badge>}</div></td>

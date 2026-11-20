@@ -82,8 +82,7 @@ class Test(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     exam = models.ForeignKey(Exam, null=True, blank=True, on_delete=models.CASCADE, related_name="tests")
-    test_type = models.CharField(max_length=10, default="mock", choices=[
-        ("mock", "Full mock test"), ("sectional", "Sectional test"), ("pyp", "Previous year paper"), ("topic", "Topic test")])
+    test_type = models.CharField(max_length=40, default="mock")   # key of a TestType
     is_paid = models.BooleanField(default=False)
     price = models.PositiveIntegerField(default=0, help_text="Price in rupees (paid tests only)")
 
@@ -136,7 +135,12 @@ class Order(models.Model):
     amount = models.PositiveIntegerField()                       # rupees
     razorpay_order_id = models.CharField(max_length=60, unique=True)
     razorpay_payment_id = models.CharField(max_length=60, blank=True)
-    status = models.CharField(max_length=10, default="created", db_index=True)   # created | paid
+    status = models.CharField(max_length=10, default="created", db_index=True)   # created | pending | paid | rejected
+    method = models.CharField(max_length=10, default="razorpay")                # razorpay | manual
+    utr = models.CharField(max_length=100, blank=True, db_index=True)           # UPI transaction id (manual)
+    screenshot = models.FileField(upload_to="payments/proofs/", blank=True)
+    note = models.CharField(max_length=300, blank=True)                         # rejection reason / admin note
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(null=True, blank=True)
 
@@ -172,20 +176,41 @@ class SiteConfig(models.Model):
     hourly_exam = models.ForeignKey(Exam, null=True, blank=True, on_delete=models.SET_NULL)
     hourly_subject = models.ForeignKey(Subject, null=True, blank=True, on_delete=models.SET_NULL)
     hourly_count = models.PositiveIntegerField(default=10)
+    # manual payment by UPI / QR code
+    manual_enabled = models.BooleanField(default=False)
+    upi_id = models.CharField(max_length=100, blank=True)
+    payee_name = models.CharField(max_length=100, blank=True)
+    upi_qr = models.FileField(upload_to="payments/qr/", blank=True)
+    manual_note = models.TextField(blank=True)
 
     @classmethod
     def get(cls):
         return cls.objects.get_or_create(pk=1)[0]
 
 
-NEWS_CATEGORIES = [("news", "Latest news"), ("result", "Result"), ("admit_card", "Admit card"),
-                   ("answer_key", "Answer key"), ("form_guide", "How to fill form"),
-                   ("solution", "Test solution"), ("syllabus", "Syllabus"), ("job", "Job alert")]
+class TestType(models.Model):
+    """Admin-managed kinds of tests (Full mock, Sectional, Previous year ...). Shown as tabs on the exam page."""
+    key = models.SlugField(max_length=40, unique=True)
+    name = models.CharField(max_length=80)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+
+class NewsCategory(models.Model):
+    """Admin-managed kinds of news (Result, Admit card, Form guide ...)."""
+    key = models.SlugField(max_length=40, unique=True)
+    name = models.CharField(max_length=80)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "id"]
 
 
 class NewsPost(models.Model):
     title = models.CharField(max_length=250)
-    category = models.CharField(max_length=12, default="news", choices=NEWS_CATEGORIES)
+    category = models.CharField(max_length=40, default="news")    # key of a NewsCategory
     summary = models.CharField(max_length=300, blank=True)
     body = models.TextField(blank=True)
     image = models.FileField(upload_to="news/images/", blank=True)

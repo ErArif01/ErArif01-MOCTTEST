@@ -37,8 +37,13 @@ urlpatterns = [
     path("payments/create-order/", pv.create_order),
     path("payments/verify/", pv.verify_payment),
     path("payments/webhook/", pv.razorpay_webhook),
+    path("payments/manual/", pv.manual_payment),
     # admin panel
     path("admin/payments/", a.admin_payments),
+    path("admin/payments/<int:pk>/approve/", a.approve_payment),
+    path("admin/payments/<int:pk>/reject/", a.reject_payment),
+    path("admin/payments/grant/", a.grant_access),
+    path("admin/payment-settings/", a.payment_settings),
     path("admin/config/", a.admin_config),
     path("admin/stats/", v.stats),
     path("admin/upload-questions/", v.upload_questions),

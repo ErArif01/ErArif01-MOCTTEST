@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../../api.js";
-import { Pager } from "./shared.jsx";
+import { api, downloadText, toCsv } from "../../api.js";
+import { ExamSelect, Pager } from "./shared.jsx";
 
 const blank = { subject: "", text: "", a: "", b: "", c: "", d: "", correct: "A", explanation: "" };
 
@@ -28,11 +28,19 @@ export default function Questions() {
 
   const upload = async (e) => {
     e.preventDefault(); setErr(""); setUp(null); setBusy(true);
-    const fd = new FormData(); fd.append("file", e.target.file.files[0]); fd.append("exam", exam);
-    try { setUp(await api("/admin/upload-questions/", { method: "POST", form: fd })); loadSubjects(); load(); e.target.reset(); }
+    const form = e.target; const fd = new FormData(); fd.append("file", form.elements.file.files[0]); fd.append("exam", exam);
+    try { setUp(await api("/admin/upload-questions/", { method: "POST", form: fd })); loadSubjects(); load(); form.reset(); }
     catch (x) { setErr(x.message); }
     setBusy(false);
   };
+  const slug = (t) => (t || "exam").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const COLS = ["subject", "question", "a", "b", "c", "d", "correct", "explanation"];
+  const sample = () => {
+    const subs = subjects.length ? subjects.slice(0, 4).map((x) => x.name) : ["Subject name"];
+    const rows = subs.map((sj, i) => ({ subject: sj, question: `SAMPLE - delete this row. Type your ${sj} question here?`, a: "Option A", b: "Option B", c: "Option C", d: "Option D", correct: "ABCD"[i % 4], explanation: "Optional explanation" }));
+    downloadText(`sample-questions-${slug(cur?.name)}.csv`, toCsv(COLS, rows));
+  };
+  const dl = (kind, rows, withError) => downloadText(`${kind}-questions-${slug(cur?.name)}.csv`, toCsv(withError ? [...COLS, "error"] : COLS, rows));
   const save = async (e) => {
     e.preventDefault(); setErr("");
     try {
@@ -50,21 +58,33 @@ export default function Questions() {
       <div className="card" style={{ marginBottom: 12 }}>
         <h2>Question bank (folder per exam)</h2>
         <p className="muted">Every exam has its own questions and subjects (for example Hindi only in some exams). Choose the exam first.</p>
-        <label>Exam<select value={exam} onChange={(e) => setExam(e.target.value)}>
-          {exams.length === 0 && <option value="">Create an exam first (Exams tab)</option>}
-          {exams.map((x) => <option key={x.id} value={x.id}>{x.category_name} / {x.name} ({x.n_questions} questions)</option>)}</select></label>
+        <ExamSelect label="Exam" value={exam} required onChange={(v, e) => { if (e && !exams.some((x) => x.id === e.id)) setExams((l) => [...l, e]); setExam(String(v)); }} />
         {cur && <p className="muted">Subjects: {subjects.map((s) => `${s.name} ${s.n}`).join("  |  ") || "none yet"}</p>}
       </div>
       {exam && (
         <>
           <div className="card" style={{ marginBottom: 12 }}>
             <h2>Upload CSV into "{cur?.name}"</h2>
-            <p>Columns: <code>subject,question,a,b,c,d,correct,explanation</code> (correct = A, B, C or D). <a href="/sample_questions.csv" download>Download sample CSV</a></p>
+            <p>Columns: <code>subject,question,a,b,c,d,correct,explanation</code> (correct = A, B, C or D).
+              Subjects can be anything this exam needs (for example Hindi, Science, English).</p>
+            <div className="bar" style={{ marginTop: 0 }}><button type="button" onClick={sample}>Download sample CSV for {cur?.name}</button></div>
             <form className="filters" onSubmit={upload}>
               <input type="file" name="file" accept=".csv" required />
               <button className="pri" disabled={busy}>{busy ? "Uploading..." : "Upload"}</button>
             </form>
-            {up && <><p className="okmsg">{up.created} new questions added (duplicates are skipped).</p>{up.errors.map((x, i) => <p key={i} className="err small">{x}</p>)}</>}
+            {up && (
+              <div className="report" role="status">
+                <p><b className="okmsg">{up.created} uploaded</b> &bull; <b>{up.duplicates} already existed (skipped)</b> &bull; <b className={up.failed ? "err" : ""}>{up.failed} failed</b>{up.samples ? ` \u2022 ${up.samples} sample row(s) ignored` : ""}</p>
+                <div className="bar" style={{ marginTop: 6 }}>
+                  {up.created > 0 && <button onClick={() => dl("uploaded", up.created_rows)}>Download uploaded list ({up.created})</button>}
+                  {up.failed > 0 && <button className="danger" onClick={() => dl("failed", up.failed_rows, true)}>Download failed list ({up.failed})</button>}
+                  {up.duplicates > 0 && <button onClick={() => dl("duplicates", up.duplicate_rows)}>Download skipped duplicates ({up.duplicates})</button>}
+                </div>
+                {up.failed > 0 && <><p className="muted small">The failed file has an extra "error" column. Fix those rows, then upload the same file again. The error column is ignored and rows already uploaded are skipped.</p>
+                  <div className="scroll"><table><thead><tr><th>Question</th><th>Problem</th></tr></thead><tbody>{up.failed_rows.slice(0, 20).map((r, i) => <tr key={i}><td>{r.question || "(empty)"}</td><td className="err">{r.error}</td></tr>)}</tbody></table></div>
+                  {up.failed > 20 && <p className="muted small">Showing the first 20. Download the file to see all.</p>}</>}
+              </div>
+            )}
           </div>
           <div className="card">
             <div className="head"><h2>Questions</h2>{!form && <button className="pri" onClick={() => { setForm(blank); setEditId(null); }}>+ Add question</button>}</div>

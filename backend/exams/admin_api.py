@@ -1,4 +1,6 @@
 """Admin panel API (staff only): users, attempts, tests, questions, overview."""
+import os
+import uuid
 from datetime import timedelta
 
 from django.contrib.auth.models import User
@@ -11,8 +13,9 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
-from .models import Attempt, Exam, NewsPost, Order, Question, Quiz, SiteConfig, Subject, Test, TestSection, Vacancy
-from .views import build_result, err, finalize, test_json
+from .models import (Attempt, Exam, NewsPost, Order, Question, Quiz, SiteConfig, Subject, Test, TestSection, TestType,
+                     Vacancy)
+from .views import build_result, err, finalize, test_json, type_map
 
 PAGE = 20
 admin_only = permission_classes([IsAdminUser])
@@ -69,6 +72,7 @@ def overview(request):
         "quizzes": Quiz.objects.count(),
         "revenue": sum(Order.objects.filter(status="paid").values_list("amount", flat=True)),
         "paid_orders": Order.objects.filter(status="paid").count(),
+        "pending_payments": Order.objects.filter(status="pending").count(),
         "attempts": {"total": Attempt.objects.count(), "submitted": Attempt.objects.filter(submitted_at__isnull=False).count(),
                      "today": Attempt.objects.filter(started_at__gte=now - timedelta(days=1)).count()},
         "avg_percentage": round(sum(pcts) / len(pcts), 2) if pcts else None,
@@ -215,8 +219,8 @@ def attempt_result(request, pk):
 
 
 # ------------------------------------------------------------------ tests CRUD
-def test_admin_json(t):
-    d = test_json(t)
+def test_admin_json(t, tm=None):
+    d = test_json(t, tm)
     d.update(is_active=t.is_active, created_at=t.created_at, n_attempts=t.attempt_set.count(),
              n_submitted=t.attempt_set.filter(submitted_at__isnull=False).count())
     return d
@@ -240,8 +244,8 @@ def parse_test(data):
     if not exam:
         raise ValueError("Choose the exam this test belongs to.")
     test_type = str(data.get("test_type", "mock"))
-    if test_type not in ("mock", "sectional", "pyp", "topic"):
-        raise ValueError("Invalid test type.")
+    if not TestType.objects.filter(key=test_type).exists():
+        raise ValueError("Invalid test type. Add it first.")
     is_paid = bool(data.get("is_paid", False))
     try:
         price = int(data.get("price") or 0)
@@ -288,7 +292,8 @@ def admin_tests(request):
         qs = Test.objects.order_by("-created_at").prefetch_related("sections__subject").select_related("exam")
         if request.GET.get("exam"):
             qs = qs.filter(exam_id=request.GET["exam"])
-        return Response([test_admin_json(t) for t in qs])
+        tm = type_map()
+        return Response([test_admin_json(t, tm) for t in qs])
     try:
         fields, secs = parse_test(request.data)
     except ValueError as e:
@@ -394,6 +399,13 @@ def admin_question_detail(request, pk):
 
 
 # ------------------------------------------------------------------ payments & site config
+def order_row(o):
+    return {"id": o.id, "user": o.user.first_name or o.user.username, "email": o.user.email, "test": o.test.name,
+            "amount": o.amount, "status": o.status, "method": o.method, "utr": o.utr, "note": o.note,
+            "screenshot": o.screenshot.url if o.screenshot else "", "order_id": o.razorpay_order_id,
+            "payment_id": o.razorpay_payment_id, "created_at": o.created_at, "paid_at": o.paid_at}
+
+
 @api_view(["GET"])
 @admin_only
 def admin_payments(request):
@@ -403,10 +415,75 @@ def admin_payments(request):
     rows, meta = paginate(qs, request)
     paid = Order.objects.filter(status="paid")
     return Response({**meta, "revenue": sum(paid.values_list("amount", flat=True)), "paid_count": paid.count(),
-                     "results": [{"id": o.id, "user": o.user.first_name or o.user.username, "email": o.user.email,
-                                  "test": o.test.name, "amount": o.amount, "status": o.status,
-                                  "order_id": o.razorpay_order_id, "payment_id": o.razorpay_payment_id,
-                                  "created_at": o.created_at, "paid_at": o.paid_at} for o in rows]})
+                     "pending_count": Order.objects.filter(status="pending").count(),
+                     "results": [order_row(o) for o in rows]})
+
+
+@api_view(["POST"])
+@admin_only
+def approve_payment(request, pk):
+    o = get_object_or_404(Order, pk=pk, method="manual")
+    o.status, o.paid_at, o.reviewed_at, o.note = "paid", timezone.now(), timezone.now(), ""
+    o.save(update_fields=["status", "paid_at", "reviewed_at", "note"])
+    return Response(order_row(o))
+
+
+@api_view(["POST"])
+@admin_only
+def reject_payment(request, pk):
+    o = get_object_or_404(Order, pk=pk, method="manual")
+    if o.status == "paid":
+        return err("This payment is already approved.")
+    o.status, o.reviewed_at = "rejected", timezone.now()
+    o.note = str(request.data.get("reason", "")).strip()[:300] or "Payment could not be verified."
+    o.save(update_fields=["status", "reviewed_at", "note"])
+    return Response(order_row(o))
+
+
+@api_view(["POST"])
+@admin_only
+def grant_access(request):
+    """Give a user a paid test manually (for example the money arrived but no transaction id was submitted)."""
+    ident = str(request.data.get("email", "")).strip()
+    user = User.objects.filter(email__iexact=ident).first() or User.objects.filter(username__iexact=ident).first()
+    if not user:
+        return err("No user found with this email or username.")
+    test = get_object_or_404(Test, pk=request.data.get("test_id") or 0, is_paid=True)
+    if Order.objects.filter(user=user, test=test, status="paid").exists():
+        return err("This user already has access to this test.")
+    now = timezone.now()
+    o = Order.objects.filter(user=user, test=test, status="pending").first()
+    if o:
+        o.status, o.paid_at, o.reviewed_at = "paid", now, now
+        o.save(update_fields=["status", "paid_at", "reviewed_at"])
+    else:
+        Order.objects.create(user=user, test=test, amount=0, razorpay_order_id="manual-" + uuid.uuid4().hex, method="manual",
+                             status="paid", utr="ADMIN-GRANT", note="Granted by admin", paid_at=now, reviewed_at=now)
+    return Response({"ok": True})
+
+
+@api_view(["GET", "PUT"])
+@admin_only
+def payment_settings(request):
+    c = SiteConfig.get()
+    if request.method == "PUT":
+        d = request.data
+        qr = request.FILES.get("upi_qr")
+        if qr:
+            if os.path.splitext(qr.name)[1].lower() not in (".jpg", ".jpeg", ".png", ".webp"):
+                return err("QR image must be jpg, png or webp.")
+            if qr.size > 5 * 1024 * 1024:
+                return err("QR image must be under 5 MB.")
+            c.upi_qr = qr
+        elif str(d.get("clear_upi_qr", "")).lower() in ("1", "true"):
+            c.upi_qr = ""
+        c.manual_enabled = str(d.get("manual_enabled", "")).lower() in ("1", "true")
+        c.upi_id = str(d.get("upi_id", "")).strip()[:100]
+        c.payee_name = str(d.get("payee_name", "")).strip()[:100]
+        c.manual_note = str(d.get("manual_note", "")).strip()
+        c.save()
+    return Response({"manual_enabled": c.manual_enabled, "upi_id": c.upi_id, "payee_name": c.payee_name,
+                     "manual_note": c.manual_note, "qr_url": c.upi_qr.url if c.upi_qr else ""})
 
 
 @api_view(["GET", "PUT"])

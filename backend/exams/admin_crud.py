@@ -9,7 +9,10 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.routers import SimpleRouter
 
-from .models import Category, Exam, NewsPost, Question, Quiz, QuizAttempt, Subject, Test, Vacancy
+from django.utils.text import slugify
+
+from .models import (Category, Exam, NewsCategory, NewsPost, Question, Quiz, QuizAttempt, Subject, Test, TestType,
+                     Vacancy)
 
 IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 VID_EXT = {".mp4", ".webm", ".mov"}
@@ -87,11 +90,58 @@ class NewsSerializer(serializers.ModelSerializer):
     def get_video_file_url(self, o):
         return o.video.url if o.video else ""
 
+    def validate_category(self, v):
+        if not NewsCategory.objects.filter(key=v).exists():
+            raise serializers.ValidationError("Unknown news type. Add it first.")
+        return v
+
     def validate_image(self, f):
         return check_file(f, IMG_EXT, 5, "Image")
 
     def validate_video(self, f):
         return check_file(f, VID_EXT, 30, "Video")
+
+
+def unique_key(model, name):
+    base = slugify(name)[:30] or "item"
+    key, n = base, 2
+    while model.objects.filter(key=key).exists():
+        key, n = f"{base}-{n}", n + 1
+    return key
+
+
+class TypeSerializer(serializers.ModelSerializer):
+    """Shared by TestType and NewsCategory."""
+    n_used = serializers.SerializerMethodField()
+
+    class Meta:
+        fields = ["id", "key", "name", "order", "n_used"]
+        read_only_fields = ["key"]
+
+    def validate_name(self, v):
+        v = v.strip()
+        qs = self.Meta.model.objects.filter(name__iexact=v)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if not v or qs.exists():
+            raise serializers.ValidationError("This name already exists." if v else "Name is required.")
+        return v
+
+
+class TestTypeSerializer(TypeSerializer):
+    class Meta(TypeSerializer.Meta):
+        model = TestType
+
+    def get_n_used(self, o):
+        return Test.objects.filter(test_type=o.key).count()
+
+
+class NewsCategorySerializer(TypeSerializer):
+    class Meta(TypeSerializer.Meta):
+        model = NewsCategory
+
+    def get_n_used(self, o):
+        return NewsPost.objects.filter(category=o.key).count()
 
 
 class QuizAdminSerializer(serializers.ModelSerializer):
@@ -153,6 +203,28 @@ class NewsViewSet(AdminCrud):
         serializer.save(**self._clear_flags())
 
 
+class TypeViewSet(AdminCrud):
+    def perform_create(self, serializer):
+        serializer.save(key=unique_key(serializer.Meta.model, serializer.validated_data["name"]))
+
+    def destroy(self, request, *args, **kwargs):
+        obj = self.get_object()
+        if self.get_serializer(obj).data["n_used"]:
+            return Response({"error": "This type is in use, so it cannot be deleted. Rename it instead."}, status=400)
+        obj.delete()
+        return Response(status=204)
+
+
+class TestTypeViewSet(TypeViewSet):
+    queryset = TestType.objects.all()
+    serializer_class = TestTypeSerializer
+
+
+class NewsCategoryViewSet(TypeViewSet):
+    queryset = NewsCategory.objects.all()
+    serializer_class = NewsCategorySerializer
+
+
 class QuizViewSet(AdminCrud):
     serializer_class = QuizAdminSerializer
 
@@ -198,3 +270,5 @@ router.register("exams", ExamViewSet, basename="admin-exam")
 router.register("vacancies", VacancyViewSet, basename="admin-vacancy")
 router.register("news", NewsViewSet, basename="admin-news")
 router.register("quizzes", QuizViewSet, basename="admin-quiz")
+router.register("test-types", TestTypeViewSet, basename="admin-test-type")
+router.register("news-categories", NewsCategoryViewSet, basename="admin-news-category")

@@ -29,6 +29,7 @@ export default function Overview() {
         {S("Vacancies", d.vacancies)}
         {S("Revenue", rupee(d.revenue), "good")}
         {S("Paid orders", d.paid_orders)}
+        {S("Payments to verify", d.pending_payments, d.pending_payments ? "bad" : "")}
       </div>
       <div className="card">
         <h2>Recent attempts</h2>

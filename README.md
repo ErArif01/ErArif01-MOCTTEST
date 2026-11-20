@@ -32,3 +32,15 @@ Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET (start with test keys). Recommended:
 ## Uploaded images and videos
 Default storage is `backend/media`. On Render free the disk is wiped on every deploy/restart, so set the S3_* variables
 (Cloudflare R2, AWS S3 or Supabase Storage) or use YouTube links for videos. Limits: image 5 MB, video 30 MB.
+
+## New in this version
+- **"+ Add new ..." inside dropdowns**: Exam (with category), Test type, News type, Category. No need to leave the form.
+- **Test types and news types are now managed by you**. Exam page tabs are created from the test types used in that exam.
+- **Question upload per exam**: choose the exam, download its sample CSV, fill it, upload. After the upload you can download
+  the *uploaded*, *failed* (with an "error" column) and *skipped duplicate* lists. Fix the failed file and upload it again.
+  Rows starting with `SAMPLE` are ignored, so leftover sample rows do no harm.
+- **QR / UPI payment (manual)**: Admin -> Payments -> "QR / UPI payment": add your QR image, UPI ID and instructions, switch it on.
+  A user pays by QR, enters the UTR number (and optionally a screenshot). You check your bank/UPI app, then press **Approve**
+  (test unlocks) or **Reject** (user sees your reason). The same UTR cannot be used twice.
+  "Give a user access manually" unlocks a paid test for any user by email.
+- Razorpay (online) and QR payment can be used together or separately. Pending QR payments are counted on the admin Overview.

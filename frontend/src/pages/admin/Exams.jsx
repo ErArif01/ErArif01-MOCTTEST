@@ -21,7 +21,8 @@ export default function Exams() {
         <CrudPage key={cats.length} title="2. Exams / vacancies (cards inside a category)" endpoint="/admin/exams"
           hint="One card per post, for example RRB ALP, RRB Group D, SSC CGL. Every exam has its own question bank, tests and syllabus."
           blank={{ category: "", name: "", icon: "\uD83C\uDFAF", color: "", description: "", syllabus: "", order: 0, is_active: true }}
-          fields={[{ name: "category", label: "Category", type: "select", required: true, options: cats.map((c) => ({ value: c.id, label: c.name })) },
+          fields={[{ name: "category", label: "Category", type: "select", required: true, options: cats.map((c) => ({ value: c.id, label: c.name })),
+              addNew: { label: "+ Add new category...", placeholder: "New category name (e.g. Banking)", create: async (name) => { const c = await api("/admin/categories/", { method: "POST", body: { name, icon: "\uD83D\uDCDA", color: "#0b4f8a", order: 0, is_active: true } }); return { value: c.id, label: c.name }; } } },
             { name: "name", label: "Exam name", required: true }, { name: "icon", label: "Icon (emoji)" }, { name: "color", label: "Colour (optional, e.g. #c0392b)", placeholder: "uses category colour" },
             { name: "order", label: "Order", type: "number" }, { name: "description", label: "Short description", wide: true },
             { name: "syllabus", label: "Syllabus (one topic per line)", type: "textarea", rows: 6, wide: true }, { name: "is_active", label: "Visible", type: "checkbox" }]}

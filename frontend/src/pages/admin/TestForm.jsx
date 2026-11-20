@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api.js";
+import { ExamSelect, SelectAdd } from "./shared.jsx";
 
 export default function TestForm() {
   const { id } = useParams();
   const nav = useNavigate();
-  const [exams, setExams] = useState([]);
+  const [types, setTypes] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [f, setF] = useState({ name: "", exam: "", test_type: "mock", is_paid: false, price: 0, description: "", duration_minutes: 90, marks_per_question: 1, negative_marks: 0.25, instructions: "", is_active: true });
   const [secs, setSecs] = useState([{ subject: "", num_questions: 10 }]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api("/admin/exams/").then(setExams).catch((e) => setErr(e.message));
+    api("/admin/test-types/").then(setTypes).catch((e) => setErr(e.message));
     if (id) api(`/admin/tests/${id}/`).then((t) => {
       setF({ name: t.name, exam: t.exam_id ?? "", test_type: t.test_type, is_paid: t.is_paid, price: t.price, description: t.description, duration_minutes: t.duration_minutes, marks_per_question: t.marks_per_question, negative_marks: t.negative_marks, instructions: t.instructions, is_active: t.is_active });
       setSecs(t.sections.map((s) => ({ subject: s.subject, num_questions: s.count })));
@@ -36,8 +37,10 @@ export default function TestForm() {
       <h2>{id ? "Edit test" : "New test"}</h2>
       <div className="formgrid">
         <label className="span2">Test name<input required value={f.name} onChange={set("name")} placeholder="e.g. RRB ALP Full Mock 1" /></label>
-        <label>Exam (vacancy)<select required value={f.exam} onChange={set("exam")}><option value="">Select exam...</option>{exams.map((x) => <option key={x.id} value={x.id}>{x.category_name} / {x.name}</option>)}</select></label>
-        <label>Test type<select value={f.test_type} onChange={set("test_type")}><option value="mock">Full mock test</option><option value="sectional">Sectional test</option><option value="pyp">Previous year paper</option><option value="topic">Topic test</option></select></label>
+        <ExamSelect value={f.exam} required onChange={(v) => setF((x) => ({ ...x, exam: v }))} />
+        <SelectAdd label="Test type" required value={f.test_type} addLabel="+ Add new test type..." placeholder="New test type (e.g. Daily practice set)"
+          options={types.map((t) => ({ value: t.key, label: t.name }))} onChange={(v) => setF((x) => ({ ...x, test_type: v }))}
+          onCreate={async (name) => { const t = await api("/admin/test-types/", { method: "POST", body: { name } }); setTypes((x) => [...x, t]); return { value: t.key, label: t.name }; }} />
         <label className="chk"><input type="checkbox" checked={f.is_paid} onChange={set("is_paid")} /> This is a PAID test</label>
         {f.is_paid && <label>Price (rupees)<input type="number" min="1" required value={f.price} onChange={set("price")} /></label>}
         <label>Duration (minutes)<input type="number" min="1" max="600" required value={f.duration_minutes} onChange={set("duration_minutes")} /></label>

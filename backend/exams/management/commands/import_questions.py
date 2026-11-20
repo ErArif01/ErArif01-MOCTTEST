@@ -13,7 +13,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **o):
         with open(o["csv_file"], encoding="utf-8-sig", newline="") as f:
-            n, errs = import_rows(csv.DictReader(f), Exam.objects.get(pk=o["exam"]))
-        self.stdout.write(f"Imported {n} new questions")
-        for e in errs:
-            self.stdout.write(e)
+            res = import_rows(csv.DictReader(f), Exam.objects.get(pk=o["exam"]))
+        self.stdout.write(f"Imported {len(res['created'])} new, {len(res['duplicates'])} duplicates, {len(res['failed'])} failed")
+        for r in res["failed"]:
+            self.stdout.write(f"FAILED: {r['question'][:50]} -> {r['error']}")

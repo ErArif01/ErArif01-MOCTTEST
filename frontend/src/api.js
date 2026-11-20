@@ -12,7 +12,8 @@ export async function api(path, { method = "GET", body, form } = {}) {
       localStorage.removeItem("token");
       if (!location.pathname.startsWith("/login")) location.assign("/login");
     }
-    throw new Error(d.error || d.detail || "Request failed (" + r.status + ")");
+    const flat = (x) => (x && typeof x === "object" ? Object.entries(x).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(" ") : v}`).join(" | ") : "");
+    throw new Error(d.error || d.detail || flat(d) || "Request failed (" + r.status + ")");
   }
   return d;
 }
@@ -34,4 +35,12 @@ export function videoEmbed(url) {            // YouTube link -> embeddable url (
     }
   } catch { /* not a url */ }
   return null;
+}
+
+const csvCell = (v) => { v = v == null ? "" : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+export const toCsv = (cols, rows) => [cols.join(","), ...rows.map((r) => cols.map((c) => csvCell(r[c])).join(","))].join("\r\n");
+export function downloadText(filename, text) {          // UTF-8 with BOM so Excel shows Hindi correctly
+  const url = URL.createObjectURL(new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

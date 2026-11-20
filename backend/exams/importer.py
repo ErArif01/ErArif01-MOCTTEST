@@ -1,29 +1,54 @@
 from .models import Question, Subject
 
+REQUIRED = ["subject", "question", "a", "b", "c", "d", "correct"]
+COLS = REQUIRED + ["explanation"]
+
+
+def _s(v):
+    return v.strip() if isinstance(v, str) else ""
+
 
 def import_rows(rows, exam):
-    """rows: iterable of dicts with columns subject,question,a,b,c,d,correct,explanation"""
-    created, errors = 0, []
-    for i, raw in enumerate(rows, start=2):
-        r = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
-        try:
-            subject, text = r["subject"], r["question"]
-            opts = [r["a"], r["b"], r["c"], r["d"]]
-            ans = r["correct"].upper()
-        except KeyError as e:
-            errors.append(f"Row {i}: missing column {e}")
+    """Returns {"created": [...], "duplicates": [...], "failed": [...], "samples": n}.
+    Every list holds dicts with the CSV columns; failed rows also carry an "error" text so the admin can fix and re-upload."""
+    out = {"created": [], "duplicates": [], "failed": [], "samples": 0}
+    for raw in rows:
+        r = {_s(k).lower(): _s(v) for k, v in raw.items() if isinstance(k, str)}
+        rec = {c: r.get(c, "") for c in COLS}
+        if rec["question"].lower().startswith("sample"):
+            out["samples"] += 1                      # example rows from the sample file are ignored
             continue
-        if not (subject and text and all(opts) and ans in ("A", "B", "C", "D")):
-            errors.append(f"Row {i}: empty field or 'correct' is not A/B/C/D")
+        missing = [c for c in REQUIRED if c not in r]
+        if missing:
+            out["failed"].append({**rec, "error": "CSV is missing column(s): " + ", ".join(missing)})
             continue
-        s, _ = Subject.objects.get_or_create(name=subject)
+        rec["correct"] = rec["correct"].upper()
+        problem = None
+        for c, label in (("subject", "Subject"), ("question", "Question"), ("a", "Option A"), ("b", "Option B"),
+                         ("c", "Option C"), ("d", "Option D")):
+            if not rec[c]:
+                problem = f"{label} is empty"
+                break
+        if not problem and rec["correct"] not in ("A", "B", "C", "D"):
+            problem = f"'correct' must be A, B, C or D (got '{rec['correct'] or 'empty'}')"
+        if not problem and len(rec["subject"]) > 100:
+            problem = "Subject name is longer than 100 characters"
+        if not problem and max(len(rec[c]) for c in "abcd") > 500:
+            problem = "An option is longer than 500 characters"
+        if problem:
+            out["failed"].append({**rec, "error": problem})
+            continue
+        subj, _ = Subject.objects.get_or_create(name=rec["subject"])
         q, new = Question.objects.get_or_create(
-            exam=exam, subject=s, text=text,
-            defaults=dict(option_a=opts[0], option_b=opts[1], option_c=opts[2], option_d=opts[3],
-                          correct=ans, explanation=r.get("explanation", "")))
-        if not new and not q.is_active:
+            exam=exam, subject=subj, text=rec["question"],
+            defaults=dict(option_a=rec["a"], option_b=rec["b"], option_c=rec["c"], option_d=rec["d"],
+                          correct=rec["correct"], explanation=rec["explanation"]))
+        if new:
+            out["created"].append(rec)
+        elif not q.is_active:
             q.is_active = True
             q.save(update_fields=["is_active"])
-            new = True
-        created += 1 if new else 0
-    return created, errors
+            out["created"].append(rec)
+        else:
+            out["duplicates"].append(rec)
+    return out

@@ -15,7 +15,7 @@ from rest_framework.response import Response
 
 from .emailer import send_otp_email
 from .importer import import_rows
-from .models import Attempt, EmailOTP, Exam, Order, Question, Subject, Test
+from .models import Attempt, EmailOTP, Exam, Order, Question, Subject, Test, TestType
 
 LETTERS = ("A", "B", "C", "D")
 log = logging.getLogger(__name__)
@@ -198,8 +198,13 @@ def change_password(request):
 
 
 # ------------------------------------------------------------------ tests
-def test_json(t):
-    return {"id": t.id, "name": t.name, "description": t.description, "duration_minutes": t.duration_minutes,
+def type_map():
+    return dict(TestType.objects.values_list("key", "name"))
+
+
+def test_json(t, tmap=None):
+    tmap = tmap if tmap is not None else type_map()
+    return {"test_type_name": tmap.get(t.test_type, t.test_type), "id": t.id, "name": t.name, "description": t.description, "duration_minutes": t.duration_minutes,
             "total_questions": t.total_questions, "total_marks": t.total_marks,
             "marks_per_question": t.marks_per_question, "negative_marks": t.negative_marks,
             "instructions": t.instructions, "exam_id": t.exam_id, "exam": t.exam.name if t.exam_id else "",
@@ -210,7 +215,8 @@ def test_json(t):
 @api_view(["GET"])
 def tests(request):
     qs = Test.objects.filter(is_active=True).order_by("-created_at")
-    return Response([test_json(t) for t in qs])
+    tm = type_map()
+    return Response([test_json(t, tm) for t in qs])
 
 
 @api_view(["GET"])
@@ -392,5 +398,8 @@ def upload_questions(request):
         text = f.read().decode("utf-8-sig")
     except UnicodeDecodeError:
         return err("Save the CSV as UTF-8 and try again.")
-    created, errors = import_rows(csv.DictReader(io.StringIO(text)), exam)
-    return Response({"created": created, "errors": errors[:50]})
+    res = import_rows(csv.DictReader(io.StringIO(text)), exam)
+    cap = lambda rows: rows[:5000]
+    return Response({"created": len(res["created"]), "duplicates": len(res["duplicates"]), "failed": len(res["failed"]),
+                     "samples": res["samples"], "created_rows": cap(res["created"]),
+                     "duplicate_rows": cap(res["duplicates"]), "failed_rows": cap(res["failed"])})

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api.js";
+import { ExamSelect, SelectAdd } from "./shared.jsx";
 
 /** Config-driven admin list + add/edit form (used for categories, exams, vacancies, news). */
 export default function CrudPage({ title, endpoint, columns, fields, blank, multipart = false, hint, extraActions }) {
@@ -8,6 +9,7 @@ export default function CrudPage({ title, endpoint, columns, fields, blank, mult
   const [editRow, setEditRow] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [added, setAdded] = useState({});
   const load = () => api(`${endpoint}/`).then(setRows).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, [endpoint]);
 
@@ -55,6 +57,11 @@ export default function CrudPage({ title, endpoint, columns, fields, blank, mult
     const v = form[x.name];
     if (x.type === "textarea") return <textarea rows={x.rows || 4} value={v ?? ""} required={x.required} onChange={(e) => set(x.name, e.target.value)} />;
     if (x.type === "checkbox") return <input type="checkbox" checked={!!v} onChange={(e) => set(x.name, e.target.checked)} />;
+    if (x.type === "examselect") return <ExamSelect label="" value={v ?? ""} required={x.required} onChange={(val) => set(x.name, val)} />;
+    if (x.type === "select" && x.addNew) return (
+      <SelectAdd label="" value={v ?? ""} required={x.required} addLabel={x.addNew.label} placeholder={x.addNew.placeholder} options={[...(x.options || []), ...(added[x.name] || [])]}
+        onChange={(val) => set(x.name, val)}
+        onCreate={async (name) => { const o = await x.addNew.create(name); setAdded((a) => ({ ...a, [x.name]: [...(a[x.name] || []), o] })); return o; }} />);
     if (x.type === "select") return (
       <select value={v ?? ""} required={x.required} onChange={(e) => set(x.name, e.target.value)}>
         <option value="">{x.required ? "Select..." : "- none -"}</option>
@@ -92,10 +99,12 @@ export default function CrudPage({ title, endpoint, columns, fields, blank, mult
         <form className="qform" onSubmit={save}>
           <h3>{editRow ? "Edit" : "Add new"}</h3>
           <div className="formgrid">
-            {fields.map((x) => (
+            {fields.map((x) => (x.type === "examselect" || (x.type === "select" && x.addNew) ? (
+              <div key={x.name} className={"field " + (x.wide ? "span2" : "")}><span className="flabel">{x.label}{x.required ? " *" : ""}</span>{input(x)}</div>
+            ) : (
               <label key={x.name} className={(x.wide ? "span2 " : "") + (x.type === "checkbox" ? "chk" : "")}>
                 {x.type === "checkbox" ? <>{input(x)} {x.label}</> : <>{x.label}{x.required ? " *" : ""}{input(x)}</>}
-              </label>))}
+              </label>)))}
           </div>
           <div className="bar"><button className="pri" disabled={busy}>{busy ? "Saving..." : "Save"}</button><button type="button" onClick={() => { setForm(null); setEditRow(null); }}>Cancel</button></div>
         </form>
